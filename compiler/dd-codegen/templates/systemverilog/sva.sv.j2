@@ -1,0 +1,74 @@
+// =============================================================================
+// Module: {{ self::sv_sva_module_name(block.name) }}
+//
+// SystemVerilog Assertions (SVA) checker module. Drop in beside
+// `{{ self::sv_module_name(block.name) }}` via the companion bind snippet
+// (`{{ self::sv_sva_bind_filename(block.name) }}`). Each category is opt-in
+// via device-level `sv-assert-*` flags; only enabled categories appear here.
+//
+// Enabled in this build:
+{% if opts.reset %}//   * reset           — storage equals reset value while `!rst_n`
+{% endif %}{% if opts.decode_mutex %}//   * decode_mutex    — at most one wr_hit_/rd_hit_ asserts per cycle
+{% endif %}{% if opts.w1c %}//   * w1c             — `on-write: clear` fields clear written bits next cycle
+{% endif %}{% if opts.ro_invariance %}//   * ro_invariance   — fully-RO fields (SW RO + HW RO) hold reset value
+{% endif %}// =============================================================================
+module {{ self::sv_sva_module_name(block.name) }}
+  import {{ self::sv_package_name(block.name) }}::*;
+(
+  input  logic                          clk,
+  input  logic                          rst_n,
+  input  logic [CPUIF_DATA_W-1:0]       cpuif_wr_data,
+  input  logic [CPUIF_DATA_W-1:0]       cpuif_wr_biten{% for port in self.sva_signal_ports(block) %},
+  input  {{ port.kind }}                {{ port.name }}{% endfor %}
+);
+
+{% if opts.decode_mutex %}
+  // ---- decode_mutex --------------------------------------------------------
+  // No two hit signals may assert simultaneously. (`$onehot0` tolerates the
+  // all-zero idle case.)
+  property p_decode_mutex;
+    @(posedge clk) disable iff (!rst_n)
+      $onehot0({ {% for h in self.sva_hit_signal_names(block) %}{{ h }}{% if !loop.last %}, {% endif %}{% endfor %} });
+  endproperty
+  a_decode_mutex: assert property (p_decode_mutex)
+    else $error("decode mutex violated");
+{% endif %}
+
+{% if opts.reset %}
+  // ---- reset ---------------------------------------------------------------
+  // Storage holds its reset value during the assertion of rst_n. Per-register
+  // because reset literals are per-register.
+{% for entry in self.sva_reset_entries(block) %}
+  a_reset_{{ entry.suffix }}: assert property (
+    @(posedge clk) (!rst_n) |-> ##1 ({{ entry.storage }} == {{ entry.reset_lit }}));
+{% endfor %}
+{% endif %}
+
+{% if opts.w1c %}
+  // ---- w1c -----------------------------------------------------------------
+  // After a write transaction that hits the register, every W1C field's bits
+  // were cleared exactly where the previous-cycle wdata&biten said `1`.
+{% for entry in self.sva_w1c_entries(block) %}
+  a_w1c_{{ entry.suffix }}: assert property (
+    @(posedge clk) disable iff (!rst_n)
+      $past({{ entry.wr_hit }}) |->
+        ({{ entry.storage_bit }} === ($past({{ entry.storage_bit }}) & ~$past({{ entry.cleared_mask }}))));
+{% endfor %}
+{% endif %}
+
+{% if opts.ro_invariance %}
+  // ---- ro_invariance -------------------------------------------------------
+  // Fully-RO fields (SW RO + HW RO, no hw-set/hw-clr, no intr) hold their
+  // reset value indefinitely after reset deasserts.
+{% for entry in self.sva_ro_entries(block) %}
+  a_ro_{{ entry.suffix }}: assert property (
+    @(posedge clk) (rst_n) |-> ({{ entry.storage_bit }} == {{ entry.reset_lit }}));
+{% endfor %}
+{% endif %}
+
+  // Sink any inputs that aren't referenced by an enabled category — keeps
+  // verilator quiet about unused ports when only one category is on.
+  wire _unused_sva;
+  assign _unused_sva = ^{clk, rst_n, cpuif_wr_data, cpuif_wr_biten{% for port in self.sva_signal_ports(block) %}, {{ port.name }}{% endfor %}};
+
+endmodule : {{ self::sv_sva_module_name(block.name) }}

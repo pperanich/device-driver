@@ -1,0 +1,8 @@
+error: unsupported `sv-data-width`
+  --> input.ddsl:9:20
+   |
+LL |     sv-data-width: 7,
+   |                    ^ got 7; only 32 and 64 are supported
+   |
+note: the regblock's internal CPUIF and the AXI4-Lite / AHB-Lite v1.1 wrappers only model 32- or 64-bit data buses
+

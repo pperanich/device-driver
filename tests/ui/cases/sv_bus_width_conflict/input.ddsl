@@ -1,0 +1,23 @@
+/// Exercises the `bus_compat_checked` MIR pass — `sv-bus: ahblite`
+/// combined with `sv-data-width: 64` is an error because the AHB-Lite
+/// v1.1 wrapper template is fixed at 32-bit `HRDATA`/`HWDATA`. Pass
+/// emits an `IncompatibleSvBusWidth` error.
+///
+/// `sv-bus: native` + `sv-data-width: 64` is a warning, not an error —
+/// the native CPUIF is parameterized but few downstream interconnects
+/// honor 64-bit. Both diagnostics should appear in the snapshot.
+device SvBusWidthConflict {
+    byte-order: LE,
+    register-address-type: u8,
+    sv-data-width: 64,
+    sv-bus: ahblite,
+    sv-bus: native,
+
+    register Foo {
+        address: 0,
+        fields: fieldset FooFields {
+            size-bytes: 8,
+            field value 63:0 -> uint
+        }
+    }
+}

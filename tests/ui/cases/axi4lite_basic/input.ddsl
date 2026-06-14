@@ -1,0 +1,16 @@
+/// Exercises `sv-bus: axi4lite` device-level property — emits an AXI4-Lite
+/// wrapper with separate W/R FSMs. Rust target ignores `sv-bus`.
+device Axi4LiteBasic {
+    byte-order: LE,
+    register-address-type: u8,
+    sv-bus: axi4lite,
+
+    register Ctrl {
+        address: 0,
+        fields: fieldset CtrlFields {
+            size-bytes: 4,
+            field enable 0 -> bool,
+            field count 31:16 -> uint,
+        }
+    }
+}

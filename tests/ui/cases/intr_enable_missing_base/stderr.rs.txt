@@ -1,0 +1,7 @@
+error: The device driver input has errors that need to be solved!
+   --> intr_enable_missing_base.rs:194:1
+    |
+194 | compile_error!("The device driver input has errors that need to be solved!");
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: could not compile `intr_enable_missing_base` (bin "intr_enable_missing_base") due to 1 previous error

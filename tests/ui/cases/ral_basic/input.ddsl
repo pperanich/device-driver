@@ -1,0 +1,35 @@
+/// Exercises `sv-ral` device-level property — emits a `<dev>_ral_pkg.sv`
+/// UVM register model with one `uvm_reg` subclass per register, one
+/// `uvm_reg_block`, and per-field `add_hdl_path_slice` backdoors keyed on
+/// `sv-hdl-path-prefix`. Rust target ignores `sv-ral`.
+device RalBasic {
+    byte-order: LE,
+    register-address-type: u8,
+    sv-ral: allow,
+    sv-hdl-path-prefix: "u_top.u_regs",
+
+    /// Status register — W1C error/warn bits, reset 0.
+    register Status {
+        address: 0,
+        access: RW,
+        reset: 0,
+        fields: fieldset StatusFields {
+            size-bytes: 4,
+            field error 0 -> bool { on-write: clear },
+            field warn  1 -> bool { on-write: clear },
+        }
+    },
+
+    /// Version register — fully RO, reset 0xCAFEBABE.
+    register Version {
+        address: 4,
+        access: RO,
+        reset: 0xCAFEBABE,
+        fields: fieldset VersionFields {
+            size-bytes: 4,
+            field major RO 31:24 -> uint,
+            field minor RO 23:16 -> uint,
+            field patch RO 15:0  -> uint,
+        }
+    }
+}

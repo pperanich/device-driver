@@ -1,0 +1,64 @@
+/// Blinky — minimal end-to-end example. A single device with three
+/// registers exercises the matched SW + HW surface:
+///
+/// * `Ctrl` — RW, written by SW to start/stop the blinker.
+/// * `Status` — RO from SW, HW-writable via `_we` strobes. The user
+///   RTL increments the `tick` counter and pulses `overflow` when the
+///   counter wraps.
+/// * `Period` — RW, controls the cycle count between ticks.
+///
+/// The Rust HAL talks to this register map via any `device-driver`
+/// transport (test harness, mmio, spi). The SV regblock is the
+/// hardware-side surface: drop into your chip's APB3 register bank,
+/// drive the user-RTL ports from a counter, observe the Status from
+/// software.
+device Blinky {
+    byte-order: LE,
+    register-address-type: u8,
+    sv-bus: apb3,
+    sv-assert-reset: allow,
+    sv-assert-decode-mutex: allow,
+    sv-ral: allow,
+
+    /// Start/stop control + brightness setpoint.
+    register Ctrl {
+        address: 0,
+        access: RW,
+        reset: 0,
+        fields: fieldset CtrlFields {
+            size-bytes: 4,
+            field enable 0 -> bool,
+            field brightness 7:1 -> uint,
+        }
+    },
+
+    /// User-RTL-driven counter + overflow flag.
+    register Status {
+        address: 4,
+        access: RW,
+        reset: 0,
+        fields: fieldset StatusFields {
+            size-bytes: 4,
+            /// Cycle counter; HW writes via `tick_we` every clock
+            /// while `Ctrl.enable` is high.
+            field tick 31:1 -> uint { hw-access: WO },
+            /// Wraps high when `tick` rolls over. W1C from SW.
+            field overflow 0 -> bool {
+                on-write: clear,
+                hw-access: RO,
+                hw-set: allow,
+            },
+        }
+    },
+
+    /// Ticks-per-blink. SW-writable; HW reads it back.
+    register Period {
+        address: 8,
+        access: RW,
+        reset: 0x100,
+        fields: fieldset PeriodFields {
+            size-bytes: 4,
+            field cycles 31:0 -> uint
+        }
+    }
+}

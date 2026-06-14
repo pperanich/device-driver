@@ -1,0 +1,18 @@
+/// Exercises the `bus_compat_checked` MIR pass — `sv-data-width: 7` is
+/// not a value the SV target can generate (only 32 and 64 are supported).
+/// Pass should emit `InvalidSvDataWidth` pointing at the literal `7`.
+/// The Rust target ignores `sv-data-width`, so compilation continues
+/// after the diagnostic is recorded; only the error count matters.
+device SvDataWidthInvalid {
+    byte-order: LE,
+    register-address-type: u8,
+    sv-data-width: 7,
+
+    register Foo {
+        address: 0,
+        fields: fieldset FooFields {
+            size-bytes: 4,
+            field value 31:0 -> uint
+        }
+    }
+}

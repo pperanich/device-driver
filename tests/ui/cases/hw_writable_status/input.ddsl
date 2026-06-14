@@ -1,0 +1,30 @@
+/// Exercises `hw-access` and the auto-generated `hwif_in` port + per-field
+/// always_ff cascade in the SystemVerilog target. The Rust target ignores
+/// the HW-side attribute.
+device HwWritableStatus {
+    byte-order: LE,
+    register-address-type: u8,
+
+    /// Status register: HW updates the counter and overflow flag continuously,
+    /// SW can clear the overflow flag (W1C) and observe both, plus a SW-only
+    /// scratch field for parity testing of the cascade.
+    register Status {
+        address: 0,
+        fields: fieldset StatusFields {
+            size-bytes: 2,
+
+            /// HW updates the counter (RW), SW can read it. SW writes are
+            /// allowed but lose to HW on the same cycle (HW > SW precedence).
+            field counter 7:0 -> uint { hw-access: RW },
+
+            /// Sticky overflow latched by HW, cleared by SW W1C.
+            field overflow 8 -> bool { hw-access: RW, on-write: clear },
+
+            /// HW-driven status (HW writes, SW reads); SW cannot modify.
+            field hw_armed RO 9 -> bool { hw-access: WO },
+
+            /// SW-only scratch field — no HW interaction.
+            field scratch 15:12 -> uint,
+        }
+    }
+}

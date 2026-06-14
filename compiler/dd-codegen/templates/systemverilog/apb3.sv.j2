@@ -1,0 +1,89 @@
+// =============================================================================
+// APB3 → native CPUIF wrapper.
+//
+// Handshake: psel + penable starts a transaction. We assert pready as soon as
+// the regs module's cpuif_*_ack returns (single-cycle for now). pslverr is
+// driven by the regs module's wr_err / rd_err.
+//
+// Note: APB3 has no per-byte write strobe. wdata is fanned out to every bit
+// of cpuif_wr_biten — every-bit-enabled writes match APB's "the whole word
+// is what got written" semantics.
+// =============================================================================
+module {{ dev_name }}_apb3
+  import {{ dev_name }}_pkg::*;
+(
+  input  logic                          pclk,
+  input  logic                          presetn,
+
+  input  logic                          psel,
+  input  logic                          penable,
+  input  logic                          pwrite,
+  input  logic [CPUIF_ADDR_W-1:0]       paddr,
+  input  logic [CPUIF_DATA_W-1:0]       pwdata,
+
+  output logic [CPUIF_DATA_W-1:0]       prdata,
+  output logic                          pready,
+  output logic                          pslverr,
+
+  output {{ dev_name }}__out_t          hwif_out{% if has_hw_in_port %},
+  input  {{ dev_name }}__in_t           hwif_in{% endif %}{% if has_root_irq %},
+  output logic                          irq{% endif %}{% for group in intr_groups %},
+  output logic                          irq_{{ group }}{% endfor %}
+);
+
+  // ---------------------------------------------------------------------------
+  // Native CPUIF wires
+  // ---------------------------------------------------------------------------
+  logic                          cpuif_req;
+  logic                          cpuif_req_is_wr;
+  logic [CPUIF_ADDR_W-1:0]       cpuif_addr;
+  logic [CPUIF_DATA_W-1:0]       cpuif_wr_data;
+  logic [CPUIF_DATA_W-1:0]       cpuif_wr_biten;
+  logic                          cpuif_rd_ack;
+  logic                          cpuif_rd_err;
+  logic [CPUIF_DATA_W-1:0]       cpuif_rd_data;
+  logic                          cpuif_wr_ack;
+  logic                          cpuif_wr_err;
+
+  // ---------------------------------------------------------------------------
+  // APB → CPUIF translation. Request goes out on the ACCESS phase (psel+penable);
+  // ready latches in the cycle after, and the next access starts after pready
+  // is sampled, so we don't need a per-request FIFO.
+  // ---------------------------------------------------------------------------
+  assign cpuif_req       = psel & penable & ~pready;
+  assign cpuif_req_is_wr = pwrite;
+  assign cpuif_addr      = paddr;
+  assign cpuif_wr_data   = pwdata;
+  assign cpuif_wr_biten  = {CPUIF_DATA_W{1'b1}}; // APB3 has no per-byte strobe
+
+  // ---------------------------------------------------------------------------
+  // CPUIF → APB. Ack from either direction satisfies pready; err from either
+  // direction satisfies pslverr.
+  // ---------------------------------------------------------------------------
+  assign pready  = cpuif_rd_ack | cpuif_wr_ack;
+  assign pslverr = cpuif_rd_err | cpuif_wr_err;
+  assign prdata  = cpuif_rd_data;
+
+  // ---------------------------------------------------------------------------
+  // Inner regs module
+  // ---------------------------------------------------------------------------
+  {{ dev_name }}_regs u_regs (
+    .clk            (pclk),
+    .rst_n          (presetn),
+    .cpuif_req      (cpuif_req),
+    .cpuif_req_is_wr(cpuif_req_is_wr),
+    .cpuif_addr     (cpuif_addr),
+    .cpuif_wr_data  (cpuif_wr_data),
+    .cpuif_wr_biten (cpuif_wr_biten),
+    .cpuif_rd_ack   (cpuif_rd_ack),
+    .cpuif_rd_err   (cpuif_rd_err),
+    .cpuif_rd_data  (cpuif_rd_data),
+    .cpuif_wr_ack   (cpuif_wr_ack),
+    .cpuif_wr_err   (cpuif_wr_err),
+    .hwif_out       (hwif_out){% if has_hw_in_port %},
+    .hwif_in        (hwif_in){% endif %}{% if has_root_irq %},
+    .irq            (irq){% endif %}{% for group in intr_groups %},
+    .irq_{{ group }} (irq_{{ group }}){% endfor %}
+  );
+
+endmodule : {{ dev_name }}_apb3

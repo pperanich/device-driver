@@ -1,0 +1,35 @@
+/// Exercises `intr-trigger` + `intr-group` on field-level — emits per-field
+/// raw input, edge-detect prev regs (for non-level triggers), sticky storage
+/// arms in the field cascade, and OR-reduce `irq` / `irq_<group>` outputs on
+/// the regs module. Rust target ignores intr-* properties.
+device InterruptAggregation {
+    byte-order: LE,
+    register-address-type: u8,
+    sv-bus: apb3,
+
+    register Status {
+        address: 0,
+        access: RW,
+        fields: fieldset StatusFields {
+            size-bytes: 4,
+            field overflow 0 -> bool {
+                on-write: clear,
+                intr-trigger: level,
+            },
+            field underflow 1 -> bool {
+                on-write: clear,
+                intr-trigger: posedge,
+            },
+            field link_up 2 -> bool {
+                on-write: clear,
+                intr-trigger: bothedge,
+                intr-group: "link",
+            },
+            field link_down 3 -> bool {
+                on-write: clear,
+                intr-trigger: negedge,
+                intr-group: "link",
+            },
+        }
+    }
+}

@@ -1,0 +1,65 @@
+// =============================================================================
+// UVM RAL smoke sequence for `{{ self::sv_ral_pkg_name(block.name) }}`.
+//
+// A minimal `uvm_sequence` that exercises every register in the model
+// with a read-after-write (RAW) pattern. Intended as a starting point for
+// verification teams — not run by OSS CI (Verilator lacks UVM). Drop the
+// sequence onto a sequencer connected to a `uvm_reg_predictor` and the
+// generated `{{ self::sv_ral_block_class(block.name) }}` to get smoke
+// coverage of the RAL model itself.
+// =============================================================================
+`ifndef _{{ self::sv_ral_smoke_guard(block.name) }}
+`define _{{ self::sv_ral_smoke_guard(block.name) }}
+
+package {{ self::sv_ral_smoke_pkg(block.name) }};
+
+  import uvm_pkg::*;
+  `include "uvm_macros.svh"
+  import {{ self::sv_ral_pkg_name(block.name) }}::*;
+
+  class {{ self::sv_ral_smoke_class(block.name) }} extends uvm_sequence;
+    `uvm_object_utils({{ self::sv_ral_smoke_class(block.name) }})
+
+    {{ self::sv_ral_block_class(block.name) }} model;
+    uvm_status_e status;
+    uvm_reg_data_t rdata;
+    uvm_reg_data_t wdata;
+
+    function new(string name = "{{ self::sv_ral_smoke_class(block.name) }}");
+      super.new(name);
+    endfunction
+
+    virtual task body();
+      if (model == null) begin
+        `uvm_fatal(get_type_name(), "RAL model handle not assigned before smoke seq")
+      end
+{% for reg in self.ral_registers() %}
+{% if reg.uvm_access == "RW" %}
+      // {{ reg.snake_name }} — RW: write pattern, read back, check equality.
+      wdata = 'h{{ reg.smoke_pattern }};
+      model.{{ reg.snake_name }}.write(status, wdata);
+      if (status != UVM_IS_OK) begin
+        `uvm_error(get_type_name(),
+                   $sformatf("write({{ reg.snake_name }}) status=%s", status.name()))
+      end
+      model.{{ reg.snake_name }}.read(status, rdata);
+      if (status != UVM_IS_OK) begin
+        `uvm_error(get_type_name(),
+                   $sformatf("read({{ reg.snake_name }}) status=%s", status.name()))
+      end
+{% else %}
+      // {{ reg.snake_name }} — {{ reg.uvm_access }}: read-only smoke (no write).
+      model.{{ reg.snake_name }}.read(status, rdata);
+      if (status != UVM_IS_OK) begin
+        `uvm_error(get_type_name(),
+                   $sformatf("read({{ reg.snake_name }}) status=%s", status.name()))
+      end
+{% endif %}
+{% endfor %}
+    endtask
+
+  endclass : {{ self::sv_ral_smoke_class(block.name) }}
+
+endpackage : {{ self::sv_ral_smoke_pkg(block.name) }}
+
+`endif // _{{ self::sv_ral_smoke_guard(block.name) }}

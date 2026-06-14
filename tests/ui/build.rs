@@ -59,12 +59,29 @@ fn generate_test_function(test_dir: DirEntry) -> String {
         .display()
         .to_string();
 
-    format!(
+    let mut tests = format!(
         "
 #[test]
 {ignore_tag}
 fn {test_name}() {{
     crate::run_test(&[{input_paths}], &Path::new(r\"{output_path}\"));
 }}"
-    )
+    );
+
+    // Emit a SystemVerilog snapshot test if the case provides expected `<test_name>.sv`.
+    let sv_expected_path = test_dir_absolute.join(format!("{test_name}.sv"));
+    if sv_expected_path.exists() {
+        let sv_path_str = sv_expected_path.display().to_string();
+        let _ = write!(
+            tests,
+            "
+#[test]
+{ignore_tag}
+fn {test_name}_sv() {{
+    crate::run_sv_test(&[{input_paths}], &Path::new(r\"{sv_path_str}\"));
+}}"
+        );
+    }
+
+    tests
 }

@@ -1,0 +1,52 @@
+/// Exercises register-level `reserved-behavior` (three variants) and the
+/// `external: allow` opt-in. Rust target ignores both.
+device ReservedExternal {
+    byte-order: LE,
+    register-address-type: u8,
+
+    /// Default ro_zero — reserved bits read as 0.
+    register CtrlZero {
+        address: 0,
+        access: RW,
+        fields: fieldset CtrlZeroFields {
+            size-bytes: 4,
+            field enable 0 -> bool,
+        }
+    },
+
+    /// ro_preserve — reserved bits keep reset value, readable.
+    register CtrlPreserve {
+        address: 4,
+        access: RW,
+        reset: 0xDEADBEEF,
+        reserved-behavior: ro_preserve,
+        fields: fieldset CtrlPreserveFields {
+            size-bytes: 4,
+            field enable 0 -> bool,
+        }
+    },
+
+    /// rw_storage — reserved bits accept SW writes like a hidden RW field.
+    register Scratch {
+        address: 8,
+        access: RW,
+        reset: 0,
+        reserved-behavior: rw_storage,
+        fields: fieldset ScratchFields {
+            size-bytes: 4,
+            field tag 7:0 -> uint,
+        }
+    },
+
+    /// External register — no storage flop. Bus reads/writes pass through
+    /// to user RTL via `hwif_out.ctrl_ext_*` + `hwif_in.ctrl_ext_rd_data`.
+    register ExtCtrl {
+        address: 12,
+        access: RW,
+        external: allow,
+        fields: fieldset ExtCtrlFields {
+            size-bytes: 4,
+            field cmd 31:0 -> uint,
+        }
+    }
+}

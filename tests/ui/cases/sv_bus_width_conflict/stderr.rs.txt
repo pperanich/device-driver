@@ -1,0 +1,7 @@
+error: The device driver input has errors that need to be solved!
+   --> sv_bus_width_conflict.rs:188:1
+    |
+188 | compile_error!("The device driver input has errors that need to be solved!");
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: could not compile `sv_bus_width_conflict` (bin "sv_bus_width_conflict") due to 1 previous error

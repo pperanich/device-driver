@@ -193,6 +193,389 @@ impl FromStr for Access {
     }
 }
 
+/// Side-effect of a software write to a field.
+/// Layers on top of `Access` to express W1C/W1S/W1T patterns common in CSRs.
+///
+/// - `Store` (default): write replaces affected bits with `wdata & wr_biten`
+/// - `Clear` (W1C): bits where `wdata & wr_biten == 1` are cleared in storage
+/// - `Set`   (W1S): bits where `wdata & wr_biten == 1` are set in storage
+/// - `Toggle`(W1T): bits where `wdata & wr_biten == 1` are toggled in storage
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum OnWrite {
+    #[default]
+    Store,
+    Clear,
+    Set,
+    Toggle,
+}
+
+impl VariantNames for OnWrite {
+    const VARIANTS: &[&'static str] = &["store", "clear", "set", "toggle"];
+}
+
+impl Display for OnWrite {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Self::VARIANTS[*self as usize])
+    }
+}
+
+impl FromStr for OnWrite {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "store" => Ok(Self::Store),
+            "clear" => Ok(Self::Clear),
+            "set" => Ok(Self::Set),
+            "toggle" => Ok(Self::Toggle),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Side-effect of a software read of a field.
+/// Layered on top of `Access`. Read-clear (RC) and read-set (RS) are common in
+/// status registers where the act of reading acknowledges the event.
+///
+/// - `Store` (default): read is purely combinational, storage unchanged
+/// - `Clear` (RC): the field's storage bits clear after a successful read
+/// - `Set`   (RS): the field's storage bits set after a successful read
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum OnRead {
+    #[default]
+    Store,
+    Clear,
+    Set,
+}
+
+impl VariantNames for OnRead {
+    const VARIANTS: &[&'static str] = &["store", "clear", "set"];
+}
+
+impl Display for OnRead {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Self::VARIANTS[*self as usize])
+    }
+}
+
+impl FromStr for OnRead {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "store" => Ok(Self::Store),
+            "clear" => Ok(Self::Clear),
+            "set" => Ok(Self::Set),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Hardware-side access mode for a field. Orthogonal to `Access` (which is
+/// software-side). Defaults to `RO` — HW observes storage via `hwif_out` only.
+///
+/// - `RO` (default): HW reads storage via `hwif_out.<field>`
+/// - `RW`: HW also writes via `hwif_in.<field>` gated by a `_we` strobe
+/// - `WO`: HW writes only; storage is HW-driven, not observable by HW
+///
+/// Reuses the `Access` lexer token for `RW`/`RO`/`WO`. The property setter
+/// disambiguates by key (`hw-access` vs `access`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum HwAccess {
+    #[default]
+    RO,
+    RW,
+    WO,
+}
+
+impl HwAccess {
+    #[must_use]
+    pub fn is_writable(&self) -> bool {
+        matches!(self, HwAccess::RW | HwAccess::WO)
+    }
+
+    #[must_use]
+    pub fn is_readable(&self) -> bool {
+        matches!(self, HwAccess::RW | HwAccess::RO)
+    }
+}
+
+impl VariantNames for HwAccess {
+    const VARIANTS: &[&'static str] = &["RO", "RW", "WO"];
+}
+
+impl Display for HwAccess {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Self::VARIANTS[*self as usize])
+    }
+}
+
+impl From<Access> for HwAccess {
+    fn from(a: Access) -> HwAccess {
+        match a {
+            Access::RW => HwAccess::RW,
+            Access::RO => HwAccess::RO,
+            Access::WO => HwAccess::WO,
+        }
+    }
+}
+
+/// Which side wins when a hardware write and a software write collide on the
+/// same clock edge. Default `Hw` matches SystemRDL convention and matches
+/// what every prior milestone of the SV target assumed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum Precedence {
+    #[default]
+    Hw,
+    Sw,
+}
+
+impl VariantNames for Precedence {
+    const VARIANTS: &[&'static str] = &["hw", "sw"];
+}
+
+impl Display for Precedence {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Self::VARIANTS[*self as usize])
+    }
+}
+
+impl FromStr for Precedence {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "hw" => Ok(Self::Hw),
+            "sw" => Ok(Self::Sw),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Behaviour of bits that aren't covered by any declared field inside a
+/// register. Affects both the read mask (what bits appear on
+/// `cpuif_rd_data`) and whether SW writes are allowed to land in those
+/// slots.
+///
+/// - `RoZero` (default): reserved bits read as 0; SW writes to them are
+///   silently dropped.
+/// - `RoPreserve`: reserved bits keep whatever sat in storage (typically
+///   reset value); SW writes are dropped but the bits remain visible.
+/// - `RwStorage`: reserved bits behave like a hidden RW field — SW writes
+///   land in storage, reads return the latest written value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum ReservedBehavior {
+    #[default]
+    RoZero,
+    RoPreserve,
+    RwStorage,
+}
+
+impl VariantNames for ReservedBehavior {
+    const VARIANTS: &[&'static str] = &["ro_zero", "ro_preserve", "rw_storage"];
+}
+
+impl Display for ReservedBehavior {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Self::VARIANTS[*self as usize])
+    }
+}
+
+impl FromStr for ReservedBehavior {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "ro_zero" => Ok(Self::RoZero),
+            "ro_preserve" => Ok(Self::RoPreserve),
+            "rw_storage" => Ok(Self::RwStorage),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Hardware-side mapping for a `buffer` block-method. v1 supports only
+/// `Fifo`; reserved space for future `Stream` / `Bram` modes.
+///
+/// - `Fifo`: bus writes push, bus reads pop. The regblock exposes
+///   `hwif_out.buf_<n>_push` / `_wdata` and `hwif_out.buf_<n>_pop`
+///   strobes; the actual FIFO storage lives in user RTL and feeds back
+///   `hwif_in.buf_<n>_rdata`. v1 deliberately does not synthesize a
+///   status companion register — that pass lands later.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum HwKind {
+    #[default]
+    Fifo,
+}
+
+impl VariantNames for HwKind {
+    const VARIANTS: &[&'static str] = &["fifo"];
+}
+
+impl Display for HwKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Self::VARIANTS[*self as usize])
+    }
+}
+
+impl FromStr for HwKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "fifo" => Ok(Self::Fifo),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Hardware-side handshake mode for a `command` block-method. Picks how the
+/// command's payload + completion semantics map to RTL ports on the regs
+/// module. v1 supports only `Strobe`; reserved space for future
+/// `ValidReady` and `Fifo` modes.
+///
+/// - `Strobe`: bus write at the command address pulses
+///   `hwif_out.cmd_<n>_strobe` for one cycle and drives
+///   `hwif_out.cmd_<n>_in` to a snapshot of the bus write data. If the
+///   command declares `fields-out`, the regblock latches
+///   `hwif_in.cmd_<n>_resp` whenever `hwif_in.cmd_<n>_resp_valid`
+///   asserts; the latched value is returned on bus reads. Bus reads when
+///   no response payload exists return zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum HwHandshake {
+    #[default]
+    Strobe,
+}
+
+impl VariantNames for HwHandshake {
+    const VARIANTS: &[&'static str] = &["strobe"];
+}
+
+impl Display for HwHandshake {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Self::VARIANTS[*self as usize])
+    }
+}
+
+impl FromStr for HwHandshake {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "strobe" => Ok(Self::Strobe),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Trigger semantics for an interrupt-source field. The raw HW input
+/// `hwif_in.<field>_intr` is sampled each cycle; this enum picks how the
+/// detection event is derived from that input.
+///
+/// - `Level` (default): event = raw input high (transparent latch)
+/// - `Posedge`: event = `~prev & raw`
+/// - `Negedge`: event = `prev & ~raw`
+/// - `Bothedge`: event = `prev ^ raw`
+///
+/// When `intr_sticky` is true (default) the event sets the field's storage,
+/// and SW must clear it via `on-write: clear` (W1C). Detected events are
+/// OR-reduced per-group into the `irq_<group>` output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum IntrTrigger {
+    #[default]
+    Level,
+    Posedge,
+    Negedge,
+    Bothedge,
+}
+
+impl VariantNames for IntrTrigger {
+    const VARIANTS: &[&'static str] = &["level", "posedge", "negedge", "bothedge"];
+}
+
+impl Display for IntrTrigger {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Self::VARIANTS[*self as usize])
+    }
+}
+
+impl FromStr for IntrTrigger {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "level" => Ok(Self::Level),
+            "posedge" => Ok(Self::Posedge),
+            "negedge" => Ok(Self::Negedge),
+            "bothedge" => Ok(Self::Bothedge),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Bus protocol that DSL asks the SV target to emit a wrapper for. Each
+/// requested value produces one `<dev>_<bus>.sv` file that wraps the native
+/// `<dev>_regs` CPUIF port set in the matching standard interface. `Native`
+/// is just a structural pass-through retained for symmetry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum SvBus {
+    #[default]
+    Native,
+    Apb3,
+    Apb4,
+    Axi4Lite,
+    AhbLite,
+}
+
+impl SvBus {
+    /// File-name suffix used when emitting the wrapper module.
+    /// Lowercase `snake_case`, matches the user-facing DSL keyword.
+    #[must_use]
+    pub fn suffix(&self) -> &'static str {
+        match self {
+            SvBus::Native => "native",
+            SvBus::Apb3 => "apb3",
+            SvBus::Apb4 => "apb4",
+            SvBus::Axi4Lite => "axi4lite",
+            SvBus::AhbLite => "ahblite",
+        }
+    }
+}
+
+impl VariantNames for SvBus {
+    const VARIANTS: &[&'static str] = &["native", "apb3", "apb4", "axi4lite", "ahblite"];
+}
+
+impl Display for SvBus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Self::VARIANTS[*self as usize])
+    }
+}
+
+impl FromStr for SvBus {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "native" => Ok(Self::Native),
+            "apb3" => Ok(Self::Apb3),
+            "apb4" => Ok(Self::Apb4),
+            "axi4lite" => Ok(Self::Axi4Lite),
+            "ahblite" => Ok(Self::AhbLite),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum ByteOrder {

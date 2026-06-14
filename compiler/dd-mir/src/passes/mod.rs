@@ -26,6 +26,7 @@ mod addresses_non_overlapping;
 mod base_types_specified;
 mod bit_ranges_validated;
 mod bool_fields_checked;
+pub mod bus_compat_checked;
 mod byte_order_specified;
 mod device_configs_owned;
 mod device_name_is_pascal;
@@ -33,14 +34,17 @@ mod enum_values_checked;
 mod extern_values_checked;
 mod field_conversion_valid;
 mod field_set_refs_valid;
+pub mod intr_companions_addressable;
 mod names_checked;
 mod names_unique;
+pub mod on_read_semantics_valid;
+pub mod on_write_semantics_valid;
 mod repeat_with_enums_checked;
 mod repeat_zero_stride_rejected;
 mod reset_values_converted;
 
 // TODO: Make const when possible in a future Rust version
-fn get_default_passes() -> [PassInfo; 18] {
+fn get_default_passes() -> [PassInfo; 22] {
     [
         PassInfo::get::<DeviceConfigsOwned>(),
         PassInfo::get::<EnumValuesChecked>(),
@@ -60,6 +64,10 @@ fn get_default_passes() -> [PassInfo; 18] {
         PassInfo::get::<AddressTypesSpecified>(),
         PassInfo::get::<AddressTypesBigEnough>(),
         PassInfo::get::<AddressesNonOverlapping>(),
+        PassInfo::get::<on_write_semantics_valid::OnWriteSemanticsValid>(),
+        PassInfo::get::<on_read_semantics_valid::OnReadSemanticsValid>(),
+        PassInfo::get::<bus_compat_checked::BusCompatChecked>(),
+        PassInfo::get::<intr_companions_addressable::IntrCompanionsAddressable>(),
     ]
 }
 

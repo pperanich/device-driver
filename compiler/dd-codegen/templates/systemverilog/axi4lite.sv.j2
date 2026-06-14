@@ -1,0 +1,241 @@
+// =============================================================================
+// AXI4-Lite → native CPUIF wrapper.
+//
+// Separate write and read FSMs, each at most one outstanding request:
+//   W path: IDLE → REQ → RESP → IDLE
+//   R path: IDLE → REQ → RESP → IDLE
+//
+// Both paths share a single CPUIF; on simultaneous contention the write
+// arbitrates first (canonical CSR convention). Decision 6 holds — bus-side
+// SLVERR comes from the regs module's cpuif_*_err only; unmapped addresses
+// outside the regblock allocation are the interconnect's responsibility.
+//
+// AWPROT/ARPROT carried but ignored (CSR is privilege-agnostic).
+// =============================================================================
+module {{ dev_name }}_axi4lite
+  import {{ dev_name }}_pkg::*;
+(
+  input  logic                          aclk,
+  input  logic                          aresetn,
+
+  // ---- AW ----------------------------------------------------------------
+  input  logic                          awvalid,
+  output logic                          awready,
+  input  logic [CPUIF_ADDR_W-1:0]       awaddr,
+  input  logic [2:0]                    awprot,
+
+  // ---- W  ----------------------------------------------------------------
+  input  logic                          wvalid,
+  output logic                          wready,
+  input  logic [CPUIF_DATA_W-1:0]       wdata,
+  input  logic [CPUIF_DATA_W/8-1:0]     wstrb,
+
+  // ---- B  ----------------------------------------------------------------
+  output logic                          bvalid,
+  input  logic                          bready,
+  output logic [1:0]                    bresp,
+
+  // ---- AR ----------------------------------------------------------------
+  input  logic                          arvalid,
+  output logic                          arready,
+  input  logic [CPUIF_ADDR_W-1:0]       araddr,
+  input  logic [2:0]                    arprot,
+
+  // ---- R  ----------------------------------------------------------------
+  output logic                          rvalid,
+  input  logic                          rready,
+  output logic [CPUIF_DATA_W-1:0]       rdata,
+  output logic [1:0]                    rresp,
+
+  output {{ dev_name }}__out_t          hwif_out{% if has_hw_in_port %},
+  input  {{ dev_name }}__in_t           hwif_in{% endif %}{% if has_root_irq %},
+  output logic                          irq{% endif %}{% for group in intr_groups %},
+  output logic                          irq_{{ group }}{% endfor %}
+);
+
+  // Protection signals are informational only on a CSR block; tie off any
+  // lint about unused inputs.
+  logic _unused_prot;
+  assign _unused_prot = |awprot ^ |arprot;
+
+  // ---------------------------------------------------------------------------
+  // Native CPUIF wires
+  // ---------------------------------------------------------------------------
+  logic                          cpuif_req;
+  logic                          cpuif_req_is_wr;
+  logic [CPUIF_ADDR_W-1:0]       cpuif_addr;
+  logic [CPUIF_DATA_W-1:0]       cpuif_wr_data;
+  logic [CPUIF_DATA_W-1:0]       cpuif_wr_biten;
+  logic                          cpuif_rd_ack;
+  logic                          cpuif_rd_err;
+  logic [CPUIF_DATA_W-1:0]       cpuif_rd_data;
+  logic                          cpuif_wr_ack;
+  logic                          cpuif_wr_err;
+
+  // ---------------------------------------------------------------------------
+  // Write FSM
+  // ---------------------------------------------------------------------------
+  typedef enum logic [1:0] {W_IDLE, W_REQ, W_RESP} w_state_e;
+  w_state_e w_state;
+  logic [CPUIF_ADDR_W-1:0] w_addr_q;
+  logic [CPUIF_DATA_W-1:0] w_data_q;
+  logic [CPUIF_DATA_W-1:0] w_biten_q;
+  logic                    w_err_q;
+
+  // WSTRB → wr_biten fanout into a temporary so the registered version
+  // captures the strobe pattern at handshake time.
+  logic [CPUIF_DATA_W-1:0] wstrb_expanded;
+  genvar i;
+  generate
+    for (i = 0; i < CPUIF_DATA_W/8; i = i + 1) begin : g_strb
+      assign wstrb_expanded[i*8 +: 8] = {8{wstrb[i]}};
+    end
+  endgenerate
+
+  always_ff @(posedge aclk) begin
+    if (!aresetn) begin
+      w_state   <= W_IDLE;
+      w_addr_q  <= '0;
+      w_data_q  <= '0;
+      w_biten_q <= '0;
+      w_err_q   <= 1'b0;
+    end else begin
+      unique case (w_state)
+        W_IDLE: begin
+          if (awvalid && wvalid) begin
+            w_addr_q  <= awaddr;
+            w_data_q  <= wdata;
+            w_biten_q <= wstrb_expanded;
+            w_state   <= W_REQ;
+          end
+        end
+        W_REQ: begin
+          if (cpuif_wr_ack) begin
+            w_err_q <= cpuif_wr_err;
+            w_state <= W_RESP;
+          end
+        end
+        W_RESP: begin
+          if (bready) w_state <= W_IDLE;
+        end
+        default: w_state <= W_IDLE;
+      endcase
+    end
+  end
+
+  assign awready = (w_state == W_IDLE);
+  assign wready  = (w_state == W_IDLE);
+  assign bvalid  = (w_state == W_RESP);
+  assign bresp   = w_err_q ? 2'b10 : 2'b00; // SLVERR : OKAY
+
+  // ---------------------------------------------------------------------------
+  // Read FSM
+  // ---------------------------------------------------------------------------
+  typedef enum logic [1:0] {R_IDLE, R_REQ, R_RESP} r_state_e;
+  r_state_e r_state;
+  logic [CPUIF_ADDR_W-1:0] r_addr_q;
+  logic [CPUIF_DATA_W-1:0] r_data_q;
+  logic                    r_err_q;
+
+  always_ff @(posedge aclk) begin
+    if (!aresetn) begin
+      r_state  <= R_IDLE;
+      r_addr_q <= '0;
+      r_data_q <= '0;
+      r_err_q  <= 1'b0;
+    end else begin
+      unique case (r_state)
+        R_IDLE: begin
+          if (arvalid) begin
+            r_addr_q <= araddr;
+            r_state  <= R_REQ;
+          end
+        end
+        R_REQ: begin
+          if (cpuif_rd_ack) begin
+            r_data_q <= cpuif_rd_data;
+            r_err_q  <= cpuif_rd_err;
+            r_state  <= R_RESP;
+          end
+        end
+        R_RESP: begin
+          if (rready) r_state <= R_IDLE;
+        end
+        default: r_state <= R_IDLE;
+      endcase
+    end
+  end
+
+  assign arready = (r_state == R_IDLE);
+  assign rvalid  = (r_state == R_RESP);
+  assign rdata   = r_data_q;
+  assign rresp   = r_err_q ? 2'b10 : 2'b00;
+
+  // ---------------------------------------------------------------------------
+  // CPUIF arbitration — writes win on simultaneous contention.
+  // ---------------------------------------------------------------------------
+  logic w_wants_cpuif, r_wants_cpuif;
+  assign w_wants_cpuif = (w_state == W_REQ);
+  assign r_wants_cpuif = (r_state == R_REQ);
+
+  assign cpuif_req       = w_wants_cpuif | r_wants_cpuif;
+  assign cpuif_req_is_wr = w_wants_cpuif;
+  assign cpuif_addr      = w_wants_cpuif ? w_addr_q  : r_addr_q;
+  assign cpuif_wr_data   = w_data_q;
+  assign cpuif_wr_biten  = w_biten_q;
+
+  {{ dev_name }}_regs u_regs (
+    .clk            (aclk),
+    .rst_n          (aresetn),
+    .cpuif_req      (cpuif_req),
+    .cpuif_req_is_wr(cpuif_req_is_wr),
+    .cpuif_addr     (cpuif_addr),
+    .cpuif_wr_data  (cpuif_wr_data),
+    .cpuif_wr_biten (cpuif_wr_biten),
+    .cpuif_rd_ack   (cpuif_rd_ack),
+    .cpuif_rd_err   (cpuif_rd_err),
+    .cpuif_rd_data  (cpuif_rd_data),
+    .cpuif_wr_ack   (cpuif_wr_ack),
+    .cpuif_wr_err   (cpuif_wr_err),
+    .hwif_out       (hwif_out){% if has_hw_in_port %},
+    .hwif_in        (hwif_in){% endif %}{% if has_root_irq %},
+    .irq            (irq){% endif %}{% for group in intr_groups %},
+    .irq_{{ group }} (irq_{{ group }}){% endfor %}
+  );
+
+`ifdef ASSERT_ON
+  // ---------------------------------------------------------------------------
+  // AXI4-Lite protocol stability checks. The spec is single-beat by
+  // construction (no AWLEN / ARLEN exists on AXI4-Lite), so the only thing
+  // worth asserting in the wrapper is handshake stability: VALID must stay
+  // high until READY accepts it.
+  // ---------------------------------------------------------------------------
+  property p_aw_stable;
+    @(posedge aclk) disable iff (!aresetn)
+      (awvalid && !awready) |=> awvalid;
+  endproperty
+  property p_w_stable;
+    @(posedge aclk) disable iff (!aresetn)
+      (wvalid && !wready) |=> wvalid;
+  endproperty
+  property p_ar_stable;
+    @(posedge aclk) disable iff (!aresetn)
+      (arvalid && !arready) |=> arvalid;
+  endproperty
+  property p_b_stable;
+    @(posedge aclk) disable iff (!aresetn)
+      (bvalid && !bready) |=> bvalid;
+  endproperty
+  property p_r_stable;
+    @(posedge aclk) disable iff (!aresetn)
+      (rvalid && !rready) |=> rvalid;
+  endproperty
+
+  a_aw_stable: assert property (p_aw_stable) else $error("aw VALID dropped pre-handshake");
+  a_w_stable:  assert property (p_w_stable)  else $error("w VALID dropped pre-handshake");
+  a_ar_stable: assert property (p_ar_stable) else $error("ar VALID dropped pre-handshake");
+  a_b_stable:  assert property (p_b_stable)  else $error("b VALID dropped pre-handshake");
+  a_r_stable:  assert property (p_r_stable)  else $error("r VALID dropped pre-handshake");
+`endif
+
+endmodule : {{ dev_name }}_axi4lite

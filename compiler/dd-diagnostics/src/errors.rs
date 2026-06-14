@@ -9,7 +9,7 @@ use annotate_snippets::{AnnotationKind, Group, Level, Patch, Snippet};
 use device_driver_common::{
     identifier::{self, Identifier, RuntimeType},
     span::{Span, Spanned},
-    specifiers::{BaseType, Integer, NodeType},
+    specifiers::{BaseType, Integer, NodeType, OnRead, OnWrite},
 };
 use itertools::Itertools;
 
@@ -906,6 +906,107 @@ impl Diagnostic for ResetValueArrayWrongSize {
                     .annotation(AnnotationKind::Visible.span(self.register_context.into())),
             ),
             Group::with_title(Level::INFO.secondary_title(INFO_TEXT)),
+        ]
+        .to_vec()
+    }
+}
+
+#[derive(Debug)]
+pub struct OnReadToggleNotAllowed {
+    pub property_span: Span,
+    pub field_set_context: Span,
+}
+
+impl Diagnostic for OnReadToggleNotAllowed {
+    fn is_error(&self) -> bool {
+        true
+    }
+
+    fn as_report<'a>(&'a self, source: &'a str, path: &'a str) -> Vec<Group<'a>> {
+        [
+            Level::ERROR
+                .primary_title("`toggle` is not a valid value for `on-read`")
+                .element(
+                    Snippet::source(source).path(path).annotations([
+                        AnnotationKind::Primary
+                            .span(self.property_span.into())
+                            .label("use `store`, `clear`, or `set`"),
+                        AnnotationKind::Visible.span(self.field_set_context.into()),
+                    ]),
+                ),
+            Group::with_title(
+                Level::HELP.secondary_title("`toggle` only makes sense as an `on-write` modifier"),
+            ),
+        ]
+        .to_vec()
+    }
+}
+
+#[derive(Debug)]
+pub struct OnReadOnWriteOnly {
+    pub field_name: Span,
+    pub on_read_value: OnRead,
+    pub field_set_context: Span,
+}
+
+impl Diagnostic for OnReadOnWriteOnly {
+    fn is_error(&self) -> bool {
+        true
+    }
+
+    fn as_report<'a>(&'a self, source: &'a str, path: &'a str) -> Vec<Group<'a>> {
+        [
+            Level::ERROR
+                .primary_title("`on-read` modifier on a write-only field")
+                .element(
+                    Snippet::source(source).path(path).annotations([
+                        AnnotationKind::Primary
+                            .span(self.field_name.into())
+                            .label(format!(
+                                "field is `WO` but has `on-read: {}`",
+                                self.on_read_value
+                            )),
+                        AnnotationKind::Visible.span(self.field_set_context.into()),
+                    ]),
+                ),
+            Group::with_title(Level::HELP.secondary_title(
+                "remove the `on-read` property or change the field's access to `RW`/`RO`",
+            )),
+        ]
+        .to_vec()
+    }
+}
+
+#[derive(Debug)]
+pub struct OnWriteOnReadOnly {
+    pub field_name: Span,
+    pub on_write_value: OnWrite,
+    pub field_set_context: Span,
+}
+
+impl Diagnostic for OnWriteOnReadOnly {
+    fn is_error(&self) -> bool {
+        true
+    }
+
+    fn as_report<'a>(&'a self, source: &'a str, path: &'a str) -> Vec<Group<'a>> {
+        [
+            Level::ERROR
+                .primary_title("`on-write` modifier on a read-only field")
+                .element(
+                    Snippet::source(source).path(path).annotations([
+                        AnnotationKind::Primary
+                            .span(self.field_name.into())
+                            .label(format!(
+                                "field is `RO` but has `on-write: {}`",
+                                self.on_write_value
+                            )),
+                        AnnotationKind::Visible.span(self.field_set_context.into()),
+                    ]),
+                ),
+            Group::with_title(Level::HELP.secondary_title(
+                "remove the `on-write` property or change the field's access to `RW`/`WO`",
+            )),
         ]
         .to_vec()
     }
@@ -2086,6 +2187,152 @@ impl Diagnostic for ZeroStrideRepeat {
                         .patch(Patch::new(self.stride.into(), "1")),
                 ),
             Group::with_title(Level::INFO.secondary_title(INFO_TEXT)),
+        ]
+        .to_vec()
+    }
+}
+
+/// Raised when `sv-data-width: N` is set to a value the SV target cannot
+/// generate. Today only 32 and 64 bits are supported (matches the
+/// internal CPUIF's `cpuif_wr_biten` granularity and the AXI4-Lite /
+/// AHB-Lite v1.1 protocol families).
+#[derive(Debug)]
+pub struct InvalidSvDataWidth {
+    pub span: Span,
+    pub value: u32,
+}
+
+impl Diagnostic for InvalidSvDataWidth {
+    fn is_error(&self) -> bool {
+        true
+    }
+
+    fn as_report<'a>(&'a self, source: &'a str, path: &'a str) -> Vec<Group<'a>> {
+        [
+            Level::ERROR
+                .primary_title("unsupported `sv-data-width`")
+                .element(
+                    Snippet::source(source).path(path).annotation(
+                        AnnotationKind::Primary
+                            .span(self.span.into())
+                            .label(format!("got {}; only 32 and 64 are supported", self.value)),
+                    ),
+                ),
+            Group::with_title(Level::NOTE.secondary_title(
+                "the regblock's internal CPUIF and the AXI4-Lite / AHB-Lite v1.1 \
+                wrappers only model 32- or 64-bit data buses",
+            )),
+        ]
+        .to_vec()
+    }
+}
+
+/// Raised when a `sv-bus:` entry is structurally incompatible with the
+/// device-level CPUIF configuration (today: just `sv-data-width`).
+/// Examples:
+/// * `sv-bus: ahblite` + `sv-data-width: 64` — AHB-Lite v1.1 mandates a
+///   32-bit data path.
+/// * `sv-bus: native` + `sv-data-width: 64` — legal but rare; emitted as
+///   a warning to flag the unusual configuration.
+#[derive(Debug)]
+pub struct IncompatibleSvBusWidth {
+    pub bus_span: Span,
+    pub width_span: Span,
+    pub bus_name: &'static str,
+    pub width: u32,
+    pub reason: Cow<'static, str>,
+    pub level: SvBusCompatLevel,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SvBusCompatLevel {
+    Error,
+    Warning,
+}
+
+impl Diagnostic for IncompatibleSvBusWidth {
+    fn is_error(&self) -> bool {
+        matches!(self.level, SvBusCompatLevel::Error)
+    }
+
+    fn as_report<'a>(&'a self, source: &'a str, path: &'a str) -> Vec<Group<'a>> {
+        let level = match self.level {
+            SvBusCompatLevel::Error => Level::ERROR,
+            SvBusCompatLevel::Warning => Level::WARNING,
+        };
+        [
+            level
+                .primary_title(format!(
+                    "`sv-bus: {}` is incompatible with `sv-data-width: {}`",
+                    self.bus_name, self.width
+                ))
+                .element(
+                    Snippet::source(source)
+                        .path(path)
+                        .annotation(
+                            AnnotationKind::Primary
+                                .span(self.bus_span.into())
+                                .label("this wrapper was requested"),
+                        )
+                        .annotation(
+                            AnnotationKind::Context
+                                .span(self.width_span.into())
+                                .label("but the CPUIF was configured here"),
+                        ),
+                ),
+            Group::with_title(Level::NOTE.secondary_title(self.reason.as_ref())),
+        ]
+        .to_vec()
+    }
+}
+
+/// Raised when a field opts into a per-group `<group>_intr_enable` /
+/// `<group>_intr_mask` companion register but the owning device does
+/// not set the matching address-base property. Without the base, the
+/// LIR synthesis pass silently skips emission of the companion
+/// register, the codegen's IRQ formula emits no enable/mask gating,
+/// and the user sees a working-looking IRQ output that ignores the
+/// configuration they wrote. The diagnostic surfaces this at MIR
+/// time so the failure is loud, not silent.
+#[derive(Debug)]
+pub struct MissingIntrCompanionBase {
+    /// Span of the field that opted in (e.g. the `intr-enable: allow`
+    /// property), so the diagnostic points at the source location the
+    /// user actually wrote.
+    pub field_span: Span,
+    /// Either `"intr-enable"` or `"intr-mask"`.
+    pub side: &'static str,
+    /// The device-level property the user needs to add — either
+    /// `"intr-enable-address-base"` or `"intr-mask-address-base"`.
+    pub address_base_property: &'static str,
+}
+
+impl Diagnostic for MissingIntrCompanionBase {
+    fn is_error(&self) -> bool {
+        true
+    }
+
+    fn as_report<'a>(&'a self, source: &'a str, path: &'a str) -> Vec<Group<'a>> {
+        [
+            Level::ERROR
+                .primary_title(format!(
+                    "`{}: allow` is set but `{}` is missing from the device",
+                    self.side, self.address_base_property
+                ))
+                .element(
+                    Snippet::source(source).path(path).annotation(
+                        AnnotationKind::Primary
+                            .span(self.field_span.into())
+                            .label(format!("`{}` opted in here", self.side)),
+                    ),
+                ),
+            Group::with_title(Level::NOTE.secondary_title(format!(
+                "without `{}: <addr>` on the device, the SystemVerilog target \
+                 can't synthesize the companion register, so the IRQ output \
+                 silently bypasses the {} gating. Either add the address-base \
+                 property or remove `{}: allow` from the field.",
+                self.address_base_property, self.side, self.side
+            ))),
         ]
         .to_vec()
     }

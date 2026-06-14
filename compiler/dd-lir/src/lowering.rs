@@ -102,6 +102,49 @@ fn collect_into_blocks(
             .unwrap_or(Integer::U8),
         register_address_mode: device_config.register_address_mode.map(|v| v.value),
         methods,
+        // Only the root block actually instantiates wrappers; sub-blocks ignore
+        // the device-level `sv-bus` list (they don't have a top-level CPUIF).
+        sv_bus: if is_root {
+            device_config.sv_bus.iter().map(|s| s.value).collect()
+        } else {
+            Vec::new()
+        },
+        sv_assertions: if is_root {
+            lir::SvAssertOpts {
+                reset: device_config.sv_assertions.reset,
+                decode_mutex: device_config.sv_assertions.decode_mutex,
+                w1c: device_config.sv_assertions.w1c,
+                ro_invariance: device_config.sv_assertions.ro_invariance,
+            }
+        } else {
+            lir::SvAssertOpts::default()
+        },
+        sv_ral: is_root && device_config.sv_ral,
+        sv_hdl_path_prefix: if is_root {
+            device_config.sv_hdl_path_prefix.clone()
+        } else {
+            None
+        },
+        sv_data_width: if is_root {
+            device_config.sv_data_width.map(|s| s.value)
+        } else {
+            None
+        },
+        intr_aggregate: if is_root {
+            device_config.intr_aggregate.unwrap_or(true)
+        } else {
+            true
+        },
+        intr_enable_address_base: if is_root {
+            device_config.intr_enable_address_base
+        } else {
+            None
+        },
+        intr_mask_address_base: if is_root {
+            device_config.intr_mask_address_base
+        } else {
+            None
+        },
     };
 
     blocks.insert(0, new_block);
@@ -151,6 +194,8 @@ fn get_method(
             repeat,
             field_set_ref,
             reset_value,
+            reserved_behavior,
+            external,
             ..
         }) => {
             let field_set = search_object(manifest, field_set_ref).ok_or(DynError::new(
@@ -171,6 +216,8 @@ fn get_method(
                         )
                     })
                     .transpose()?,
+                    reserved_behavior: *reserved_behavior,
+                    external: *external,
                 },
             })
         }
@@ -181,6 +228,7 @@ fn get_method(
             repeat,
             field_set_ref_in,
             field_set_ref_out,
+            hw_handshake,
             ..
         }) => {
             let field_set_in = field_set_ref_in
@@ -211,6 +259,7 @@ fn get_method(
                     field_set_name_in: field_set_in.map(|fs_in| fs_in.name().clone().cast_assert()),
                     field_set_name_out: field_set_out
                         .map(|fs_out| fs_out.name().clone().cast_assert()),
+                    hw_handshake: *hw_handshake,
                 },
             })
         }
@@ -219,13 +268,23 @@ fn get_method(
             name,
             access,
             address,
+            hw_kind,
+            depth,
+            status_address,
+            words,
             span: _,
         }) => Some(lir::BlockMethod {
             description: description.clone(),
             name: name.value.clone(),
             address: address.value,
             repeat: lir::Repeat::None, // Buffers can't be repeated (for now?)
-            method_type: lir::BlockMethodType::Buffer { access: *access },
+            method_type: lir::BlockMethodType::Buffer {
+                access: *access,
+                hw_kind: *hw_kind,
+                depth: *depth,
+                status_address: *status_address,
+                words: *words,
+            },
         }),
         mir::Object::FieldSet(_) => None,
         mir::Object::Enum(_) => None,
@@ -282,6 +341,20 @@ fn transform_field(manifest: &mir::Manifest, field: &mir::Field) -> Result<lir::
         description,
         name,
         access,
+        on_write,
+        on_read,
+        hw_access,
+        hw_clr,
+        hw_set,
+        singlepulse,
+        precedence,
+        intr_trigger,
+        intr_group,
+        intr_sticky,
+        intr_enable,
+        intr_mask,
+        intr_enable_bit,
+        intr_mask_bit,
         base_type,
         field_conversion,
         field_address,
@@ -357,6 +430,24 @@ fn transform_field(manifest: &mir::Manifest, field: &mir::Field) -> Result<lir::
         base_type,
         conversion_method,
         access: *access,
+        on_write: on_write.unwrap_or_default(),
+        on_read: on_read.unwrap_or_default(),
+        hw_access: hw_access.unwrap_or_default(),
+        hw_clr: *hw_clr,
+        hw_set: *hw_set,
+        singlepulse: *singlepulse,
+        precedence: precedence.unwrap_or_default(),
+        intr_trigger: *intr_trigger,
+        intr_group: intr_group.clone(),
+        // Default sticky to true once the field is marked as an interrupt
+        // source — matches the common case (W1C latch). The DSL `intr-sticky`
+        // knob is opt-out (`allow` flips it back on if a future default
+        // ever ships off).
+        intr_sticky: intr_trigger.is_some() || *intr_sticky,
+        intr_enable: *intr_enable,
+        intr_mask: *intr_mask,
+        intr_enable_bit: intr_enable_bit.map(|s| s.value),
+        intr_mask_bit: intr_mask_bit.map(|s| s.value),
         repeat: repeat
             .as_ref()
             .map_or(lir::Repeat::None, |repeat| match &repeat.source {

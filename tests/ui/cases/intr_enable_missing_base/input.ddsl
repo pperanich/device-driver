@@ -1,0 +1,28 @@
+/// Exercises the `intr_companions_addressable` MIR pass.
+///
+/// `intr-enable: allow` requires `intr-enable-address-base` on the
+/// device so the synthesis pass can place the companion register.
+/// `intr-mask: allow` requires `intr-mask-address-base`. Without
+/// either, the LIR synthesis pass would silently skip companion
+/// emission, the IRQ formula would lose its gating term, and the
+/// user would see a working-looking IRQ output that ignores the
+/// configuration. This case omits both bases and opts in to both
+/// sides — expect two diagnostics.
+device IntrEnableMissingBase {
+    byte-order: LE,
+    register-address-type: u8,
+
+    register Status {
+        address: 0,
+        access: RW,
+        fields: fieldset StatusFields {
+            size-bytes: 4,
+            field overflow 0 -> bool {
+                on-write: clear,
+                intr-trigger: level,
+                intr-enable: allow,
+                intr-mask: allow,
+            },
+        }
+    }
+}

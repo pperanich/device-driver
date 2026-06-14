@@ -1,0 +1,24 @@
+/// Exercises `hw-handshake: strobe` on a command — the SV target emits a
+/// 1-cycle strobe + payload on bus write, latches HW response into a
+/// storage word, and returns it on bus read. Rust target ignores
+/// `hw-handshake`.
+device CommandStrobe {
+    byte-order: LE,
+    register-address-type: u8,
+    command-address-type: u8,
+    sv-bus: apb3,
+
+    command ReadId {
+        address: 4,
+        hw-handshake: strobe,
+
+        fields-in: fieldset ReadIdIn {
+            size-bytes: 1,
+            field op 7:0 -> uint,
+        },
+        fields-out: fieldset ReadIdOut {
+            size-bytes: 4,
+            field id 31:0 -> uint,
+        }
+    }
+}

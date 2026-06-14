@@ -2,7 +2,10 @@ use std::{borrow::Cow, fmt::Display};
 
 use device_driver_common::{
     span::{SpanExt, Spanned},
-    specifiers::{Access, AddressMode, BaseType, ByteOrder, Integer},
+    specifiers::{
+        Access, AddressMode, BaseType, ByteOrder, HwHandshake, HwKind, Integer, IntrTrigger,
+        OnWrite, Precedence, ReservedBehavior, SvBus,
+    },
 };
 use logos::Logos;
 
@@ -86,6 +89,33 @@ pub enum Token<'src> {
     #[token("mapped", |_| AddressMode::Mapped)]
     #[token("indexed", |_| AddressMode::Indexed)]
     AddressMode(AddressMode),
+    #[token("store", |_| OnWrite::Store)]
+    #[token("clear", |_| OnWrite::Clear)]
+    #[token("set", |_| OnWrite::Set)]
+    #[token("toggle", |_| OnWrite::Toggle)]
+    OnWrite(OnWrite),
+    #[token("hw", |_| Precedence::Hw)]
+    #[token("sw", |_| Precedence::Sw)]
+    Precedence(Precedence),
+    #[token("apb3", |_| SvBus::Apb3)]
+    #[token("apb4", |_| SvBus::Apb4)]
+    #[token("axi4lite", |_| SvBus::Axi4Lite)]
+    #[token("ahblite", |_| SvBus::AhbLite)]
+    #[token("native", |_| SvBus::Native)]
+    SvBus(SvBus),
+    #[token("level", |_| IntrTrigger::Level)]
+    #[token("posedge", |_| IntrTrigger::Posedge)]
+    #[token("negedge", |_| IntrTrigger::Negedge)]
+    #[token("bothedge", |_| IntrTrigger::Bothedge)]
+    IntrTrigger(IntrTrigger),
+    #[token("strobe", |_| HwHandshake::Strobe)]
+    HwHandshake(HwHandshake),
+    #[token("fifo", |_| HwKind::Fifo)]
+    HwKind(HwKind),
+    #[token("ro_zero", |_| ReservedBehavior::RoZero)]
+    #[token("ro_preserve", |_| ReservedBehavior::RoPreserve)]
+    #[token("rw_storage", |_| ReservedBehavior::RwStorage)]
+    ReservedBehavior(ReservedBehavior),
     // Very simple definition without string escaping
     #[regex(r#""[^"]*""#, callback = |lex| lex.slice().strip_prefix('"').unwrap().strip_suffix('"').unwrap())]
     String(&'src str),
@@ -121,6 +151,13 @@ impl Display for Token<'_> {
             Token::BaseType(_) => write!(f, "base type"),
             Token::Integer(_) => write!(f, "integer type"),
             Token::AddressMode(_) => write!(f, "address mode"),
+            Token::OnWrite(_) => write!(f, "on-write modifier"),
+            Token::Precedence(_) => write!(f, "precedence side"),
+            Token::SvBus(_) => write!(f, "bus protocol"),
+            Token::IntrTrigger(_) => write!(f, "interrupt trigger"),
+            Token::HwHandshake(_) => write!(f, "hw handshake mode"),
+            Token::HwKind(_) => write!(f, "hw kind"),
+            Token::ReservedBehavior(_) => write!(f, "reserved-bit behavior"),
             Token::String(_) => write!(f, "string"),
             Token::Unexpected(val) => write!(f, "{}", val.escape_debug()),
             Token::Error => write!(f, "ERROR"),
@@ -152,6 +189,13 @@ impl<'src> Token<'src> {
             Token::BaseType(val) => val.to_string().into(),
             Token::Integer(val) => val.to_string().into(),
             Token::AddressMode(val) => val.to_string().into(),
+            Token::OnWrite(val) => val.to_string().into(),
+            Token::Precedence(val) => val.to_string().into(),
+            Token::SvBus(val) => val.to_string().into(),
+            Token::IntrTrigger(val) => val.to_string().into(),
+            Token::HwHandshake(val) => val.to_string().into(),
+            Token::HwKind(val) => val.to_string().into(),
+            Token::ReservedBehavior(val) => val.to_string().into(),
             Token::Allow => "allow".into(),
             Token::Default => "default".into(),
             Token::CatchAll => "catch-all".into(),

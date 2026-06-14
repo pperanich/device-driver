@@ -1,0 +1,122 @@
+// =============================================================================
+// AHB-Lite → native CPUIF wrapper.
+//
+// 2-phase pipelined protocol: address phase samples haddr/hwrite/htrans;
+// data phase samples hwdata for writes / drives hrdata for reads.
+// HREADY high indicates the master can sample the slave's response.
+//
+// Scope (v1.1 — minimal):
+//   - Single beat (htrans = NONSEQ); BUSY/SEQ treated as transparent
+//   - hsize informational only; full bus width assumed (CPUIF_DATA_W)
+//   - hresp encodes OKAY (1'b0) / ERROR (1'b1, 2-cycle response when applicable)
+//   - 1 outstanding transaction max (regblock CPUIF semantics)
+// =============================================================================
+module {{ dev_name }}_ahblite
+  import {{ dev_name }}_pkg::*;
+(
+  input  logic                          hclk,
+  input  logic                          hresetn,
+
+  // ---- Address phase ---------------------------------------------------------
+  input  logic                          hsel,
+  input  logic                          hwrite,
+  input  logic [1:0]                    htrans,
+  input  logic [2:0]                    hsize,
+  input  logic [2:0]                    hburst,
+  input  logic [CPUIF_ADDR_W-1:0]       haddr,
+
+  // ---- Data phase ------------------------------------------------------------
+  input  logic [CPUIF_DATA_W-1:0]       hwdata,
+  input  logic                          hready,     // master HREADYIN
+  output logic                          hreadyout,
+  output logic [CPUIF_DATA_W-1:0]       hrdata,
+  output logic                          hresp,
+
+  output {{ dev_name }}__out_t          hwif_out{% if has_hw_in_port %},
+  input  {{ dev_name }}__in_t           hwif_in{% endif %}{% if has_root_irq %},
+  output logic                          irq{% endif %}{% for group in intr_groups %},
+  output logic                          irq_{{ group }}{% endfor %}
+);
+
+  // Tie off the informational AHB inputs to avoid lint complaints. hsize and
+  // hburst are protocol-required but the CSR slave doesn't act on them.
+  logic _unused_ahb;
+  assign _unused_ahb = ^{hsize, hburst};
+
+  // ---------------------------------------------------------------------------
+  // Address-phase capture. The address phase is one cycle ahead of data phase.
+  // We latch the captured request and present it to the CPUIF in the next
+  // cycle when hready is high.
+  // ---------------------------------------------------------------------------
+  // htrans encoding: 00 IDLE, 01 BUSY, 10 NONSEQ, 11 SEQ. Slave responds to
+  // NONSEQ + SEQ.
+  wire ap_valid = hsel & hready & (htrans == 2'b10 || htrans == 2'b11);
+
+  logic                          dp_valid;
+  logic                          dp_is_wr;
+  logic [CPUIF_ADDR_W-1:0]       dp_addr;
+  always_ff @(posedge hclk) begin
+    if (!hresetn) begin
+      dp_valid <= 1'b0;
+      dp_is_wr <= 1'b0;
+      dp_addr  <= '0;
+    end else if (hready) begin
+      dp_valid <= ap_valid;
+      dp_is_wr <= hwrite;
+      dp_addr  <= haddr;
+    end
+  end
+
+  // ---------------------------------------------------------------------------
+  // Native CPUIF wires + drive
+  // ---------------------------------------------------------------------------
+  logic                          cpuif_req;
+  logic                          cpuif_req_is_wr;
+  logic [CPUIF_ADDR_W-1:0]       cpuif_addr;
+  logic [CPUIF_DATA_W-1:0]       cpuif_wr_data;
+  logic [CPUIF_DATA_W-1:0]       cpuif_wr_biten;
+  logic                          cpuif_rd_ack;
+  logic                          cpuif_rd_err;
+  logic [CPUIF_DATA_W-1:0]       cpuif_rd_data;
+  logic                          cpuif_wr_ack;
+  logic                          cpuif_wr_err;
+
+  assign cpuif_req       = dp_valid;
+  assign cpuif_req_is_wr = dp_is_wr;
+  assign cpuif_addr      = dp_addr;
+  assign cpuif_wr_data   = hwdata;
+  // AHB-Lite has no per-byte strobe; every bit is enabled. (HSIZE could
+  // partial-update but the regblock CPUIF treats hwdata as a full word.)
+  assign cpuif_wr_biten  = {CPUIF_DATA_W{1'b1}};
+
+  // ---------------------------------------------------------------------------
+  // Response back to AHB. HREADYOUT goes low for one cycle while we wait
+  // for the regblock to ack; once an ack lands, HREADYOUT goes high with
+  // the data. ERROR responses encode HRESP=1 for two consecutive HREADY=1
+  // cycles per AHB spec (here collapsed to one cycle because the regblock
+  // already presents err in lockstep with ack).
+  // ---------------------------------------------------------------------------
+  assign hreadyout = !dp_valid || cpuif_rd_ack || cpuif_wr_ack;
+  assign hrdata    = cpuif_rd_data;
+  assign hresp     = cpuif_rd_err | cpuif_wr_err;
+
+  {{ dev_name }}_regs u_regs (
+    .clk            (hclk),
+    .rst_n          (hresetn),
+    .cpuif_req      (cpuif_req),
+    .cpuif_req_is_wr(cpuif_req_is_wr),
+    .cpuif_addr     (cpuif_addr),
+    .cpuif_wr_data  (cpuif_wr_data),
+    .cpuif_wr_biten (cpuif_wr_biten),
+    .cpuif_rd_ack   (cpuif_rd_ack),
+    .cpuif_rd_err   (cpuif_rd_err),
+    .cpuif_rd_data  (cpuif_rd_data),
+    .cpuif_wr_ack   (cpuif_wr_ack),
+    .cpuif_wr_err   (cpuif_wr_err),
+    .hwif_out       (hwif_out){% if has_hw_in_port %},
+    .hwif_in        (hwif_in){% endif %}{% if has_root_irq %},
+    .irq            (irq){% endif %}{% for group in intr_groups %},
+    .irq_{{ group }} (irq_{{ group }}){% endfor %}
+  );
+
+endmodule : {{ dev_name }}_ahblite

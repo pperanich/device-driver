@@ -1,0 +1,26 @@
+/// Exercises the field-level `on-write` modifier (W1C / W1S / W1T / store)
+/// landing in the SystemVerilog target. The Rust target ignores the modifier.
+device OnWriteModifiers {
+    byte-order: LE,
+    register-address-type: u8,
+
+    /// Status register: every field demonstrates a different write semantic.
+    register Status {
+        address: 0,
+        fields: fieldset StatusFields {
+            size-bytes: 1,
+
+            /// Standard mask-merge write (default; matches plain RW).
+            field plain 0 -> bool,
+
+            /// Write-1-to-clear: writing `1` clears the bit, writing `0` is a no-op.
+            field overflow 1 -> bool { on-write: clear },
+
+            /// Write-1-to-set: writing `1` sets the bit, writing `0` is a no-op.
+            field arm 2 -> bool { on-write: set },
+
+            /// Write-1-to-toggle: writing `1` flips the bit, writing `0` is a no-op.
+            field flip 3 -> bool { on-write: toggle },
+        }
+    }
+}

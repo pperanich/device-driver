@@ -1,0 +1,21 @@
+error: `sv-bus: ahblite` is incompatible with `sv-data-width: 64`
+  --> input.ddsl:13:13
+   |
+LL |     sv-data-width: 64,
+   |                    -- but the CPUIF was configured here
+LL |     sv-bus: ahblite,
+   |             ^^^^^^^ this wrapper was requested
+   |
+note: AHB-Lite v1.1 wrapper is fixed at 32-bit `HRDATA`/`HWDATA`. Re-run with `sv-data-width: 32` or drop the AHB-Lite wrapper.
+
+warning: `sv-bus: native` is incompatible with `sv-data-width: 64`
+  --> input.ddsl:14:13
+   |
+LL |     sv-data-width: 64,
+   |                    -- but the CPUIF was configured here
+LL |     sv-bus: ahblite,
+LL |     sv-bus: native,
+   |             ^^^^^^ this wrapper was requested
+   |
+note: the native CPUIF supports a 64-bit data path, but few downstream interconnects do. Confirm this is intended.
+

@@ -1,0 +1,17 @@
+/// Exercises `hw-kind: fifo` on a buffer — the SV target emits bus-side
+/// push/pop strobes + wdata to user RTL and routes user-provided rdata
+/// back through the read mux. The regblock does NOT contain FIFO storage
+/// in v1. Rust target ignores `hw-kind` / `depth`.
+device BufferFifo {
+    byte-order: LE,
+    register-address-type: u8,
+    buffer-address-type: u8,
+    sv-bus: apb3,
+
+    buffer DataFifo {
+        address: 0x10,
+        access: RW,
+        hw-kind: fifo,
+        depth: 16,
+    }
+}

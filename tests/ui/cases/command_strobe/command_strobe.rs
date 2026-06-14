@@ -1,0 +1,297 @@
+#!/usr/bin/env cargo
+---
+[package]
+edition = "2024"
+[dependencies]
+device-driver = { path="../../../../device-driver", default-features=false }
+---
+#![deny(warnings)]
+#![allow(unexpected_cfgs)]
+fn main() {}
+
+// This code was generated using device-driver `2.0.0-alpha.1` (xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx),
+// a tool distributed under MIT OR Apache-2.0 by Dion Dokter <dev@diondokter.nl>
+// This version was built for xxxx-xxxx-xxxx using rustc 1.xx.x (xxxxxxxxx xxxx-xx-xx)
+// 
+// For more information about device-driver, visit the website: https://device-driver.com
+
+/// Exercises `hw-handshake: strobe` on a command — the SV target emits a
+/// 1-cycle strobe + payload on bus write, latches HW response into a
+/// storage word, and returns it on bus read. Rust target ignores
+/// `hw-handshake`.
+///
+/// Root block of the CommandStrobe driver
+#[derive(Debug)]
+pub struct CommandStrobe<I> {
+    pub(crate) interface: I,
+    #[doc(hidden)]
+    base_address: u8,
+}
+impl<I> CommandStrobe<I> {
+    /// Create a new instance of the block based on device interface
+    pub const fn new(interface: I) -> Self {
+        Self { interface, base_address: 0 }
+    }
+    #[doc(alias = "ReadId")]
+    pub fn read_id(
+        &mut self,
+    ) -> ::device_driver::CommandOperation<'_, Self, u8, ReadIdIn, ReadIdOut>
+    where
+        I: ::device_driver::CommandInterfaceBase<AddressType = u8>,
+    {
+        let address = self.base_address + 4;
+        ::device_driver::CommandOperation::new(self, address as u8)
+    }
+}
+impl<I> ::device_driver::Block for CommandStrobe<I> {
+    type Interface = I;
+    type RegisterAddressType = u8;
+    type CommandAddressType = u8;
+    type BufferAddressType = u8;
+    type RegisterAddressMode = ();
+    fn interface(&mut self) -> &mut Self::Interface {
+        &mut self.interface
+    }
+}
+#[derive(Copy, Clone, Eq, PartialEq)]
+#[repr(transparent)]
+pub struct ReadIdOut {
+    /// The internal bits
+    bits: [u8; 4],
+}
+unsafe impl ::device_driver::Fieldset for ReadIdOut {
+    const METADATA: ::device_driver::FieldsetMetadata = ::device_driver::FieldsetMetadata::new()
+        .with_byte_order(::device_driver::ByteOrder::LE);
+    const ZERO: Self = Self { bits: [0; 4] };
+}
+impl ReadIdOut {
+    /// `31:0` - Read the `id` field.
+    ///
+    #[must_use]
+    pub fn id(&self) -> u32 {
+        let start = 0;
+        let end = 31;
+        let raw = unsafe {
+            ::device_driver::ops::load::<
+                u32,
+                ::device_driver::ops::LE,
+            >(&self.bits, start, end)
+        };
+        raw
+    }
+    /// `31:0` - Set the `id` field.
+    ///
+    pub fn set_id(&mut self, value: u32) {
+        let start = 0;
+        let end = 31;
+        let raw = value;
+        unsafe {
+            ::device_driver::ops::store::<
+                u32,
+                ::device_driver::ops::LE,
+            >(raw, start, end, &mut self.bits)
+        };
+    }
+}
+impl Default for ReadIdOut {
+    fn default() -> Self {
+        <Self as ::device_driver::Fieldset>::ZERO
+    }
+}
+impl From<[u8; 4]> for ReadIdOut {
+    fn from(bits: [u8; 4]) -> Self {
+        Self { bits }
+    }
+}
+impl From<ReadIdOut> for [u8; 4] {
+    fn from(val: ReadIdOut) -> Self {
+        val.bits
+    }
+}
+impl core::fmt::Debug for ReadIdOut {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+        let mut d = f.debug_struct("ReadIdOut");
+        d.field("id", &self.id());
+        d.finish()
+    }
+}
+#[cfg(feature = "defmt")]
+impl defmt::Format for ReadIdOut {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(f, "ReadIdOut {{ ");
+        defmt::write!(f, "id: {=u32}, ", & self.id());
+        defmt::write!(f, "}}");
+    }
+}
+impl core::ops::BitAnd for ReadIdOut {
+    type Output = Self;
+    fn bitand(mut self, rhs: Self) -> Self::Output {
+        self &= rhs;
+        self
+    }
+}
+impl core::ops::BitAndAssign for ReadIdOut {
+    fn bitand_assign(&mut self, rhs: Self) {
+        for (l, r) in self.bits.iter_mut().zip(&rhs.bits) {
+            *l &= *r;
+        }
+    }
+}
+impl core::ops::BitOr for ReadIdOut {
+    type Output = Self;
+    fn bitor(mut self, rhs: Self) -> Self::Output {
+        self |= rhs;
+        self
+    }
+}
+impl core::ops::BitOrAssign for ReadIdOut {
+    fn bitor_assign(&mut self, rhs: Self) {
+        for (l, r) in self.bits.iter_mut().zip(&rhs.bits) {
+            *l |= *r;
+        }
+    }
+}
+impl core::ops::BitXor for ReadIdOut {
+    type Output = Self;
+    fn bitxor(mut self, rhs: Self) -> Self::Output {
+        self ^= rhs;
+        self
+    }
+}
+impl core::ops::BitXorAssign for ReadIdOut {
+    fn bitxor_assign(&mut self, rhs: Self) {
+        for (l, r) in self.bits.iter_mut().zip(&rhs.bits) {
+            *l ^= *r;
+        }
+    }
+}
+impl core::ops::Not for ReadIdOut {
+    type Output = Self;
+    fn not(mut self) -> Self::Output {
+        for val in self.bits.iter_mut() {
+            *val = !*val;
+        }
+        self
+    }
+}
+#[derive(Copy, Clone, Eq, PartialEq)]
+#[repr(transparent)]
+pub struct ReadIdIn {
+    /// The internal bits
+    bits: [u8; 1],
+}
+unsafe impl ::device_driver::Fieldset for ReadIdIn {
+    const METADATA: ::device_driver::FieldsetMetadata = ::device_driver::FieldsetMetadata::new()
+        .with_byte_order(::device_driver::ByteOrder::LE);
+    const ZERO: Self = Self { bits: [0; 1] };
+}
+impl ReadIdIn {
+    /// `7:0` - Read the `op` field.
+    ///
+    #[must_use]
+    pub fn op(&self) -> u8 {
+        let start = 0;
+        let end = 7;
+        let raw = unsafe {
+            ::device_driver::ops::load::<
+                u8,
+                ::device_driver::ops::LE,
+            >(&self.bits, start, end)
+        };
+        raw
+    }
+    /// `7:0` - Set the `op` field.
+    ///
+    pub fn set_op(&mut self, value: u8) {
+        let start = 0;
+        let end = 7;
+        let raw = value;
+        unsafe {
+            ::device_driver::ops::store::<
+                u8,
+                ::device_driver::ops::LE,
+            >(raw, start, end, &mut self.bits)
+        };
+    }
+}
+impl Default for ReadIdIn {
+    fn default() -> Self {
+        <Self as ::device_driver::Fieldset>::ZERO
+    }
+}
+impl From<[u8; 1]> for ReadIdIn {
+    fn from(bits: [u8; 1]) -> Self {
+        Self { bits }
+    }
+}
+impl From<ReadIdIn> for [u8; 1] {
+    fn from(val: ReadIdIn) -> Self {
+        val.bits
+    }
+}
+impl core::fmt::Debug for ReadIdIn {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+        let mut d = f.debug_struct("ReadIdIn");
+        d.field("op", &self.op());
+        d.finish()
+    }
+}
+#[cfg(feature = "defmt")]
+impl defmt::Format for ReadIdIn {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(f, "ReadIdIn {{ ");
+        defmt::write!(f, "op: {=u8}, ", & self.op());
+        defmt::write!(f, "}}");
+    }
+}
+impl core::ops::BitAnd for ReadIdIn {
+    type Output = Self;
+    fn bitand(mut self, rhs: Self) -> Self::Output {
+        self &= rhs;
+        self
+    }
+}
+impl core::ops::BitAndAssign for ReadIdIn {
+    fn bitand_assign(&mut self, rhs: Self) {
+        for (l, r) in self.bits.iter_mut().zip(&rhs.bits) {
+            *l &= *r;
+        }
+    }
+}
+impl core::ops::BitOr for ReadIdIn {
+    type Output = Self;
+    fn bitor(mut self, rhs: Self) -> Self::Output {
+        self |= rhs;
+        self
+    }
+}
+impl core::ops::BitOrAssign for ReadIdIn {
+    fn bitor_assign(&mut self, rhs: Self) {
+        for (l, r) in self.bits.iter_mut().zip(&rhs.bits) {
+            *l |= *r;
+        }
+    }
+}
+impl core::ops::BitXor for ReadIdIn {
+    type Output = Self;
+    fn bitxor(mut self, rhs: Self) -> Self::Output {
+        self ^= rhs;
+        self
+    }
+}
+impl core::ops::BitXorAssign for ReadIdIn {
+    fn bitxor_assign(&mut self, rhs: Self) {
+        for (l, r) in self.bits.iter_mut().zip(&rhs.bits) {
+            *l ^= *r;
+        }
+    }
+}
+impl core::ops::Not for ReadIdIn {
+    type Output = Self;
+    fn not(mut self) -> Self::Output {
+        for val in self.bits.iter_mut() {
+            *val = !*val;
+        }
+        self
+    }
+}

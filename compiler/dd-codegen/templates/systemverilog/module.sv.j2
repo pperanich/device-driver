@@ -1,0 +1,320 @@
+// =============================================================================
+// Module: {{ self::sv_module_name(block.name) }}
+//
+// Internal CPUIF (see SYSTEMVERILOG_DECISIONS.md, Decision 1+2):
+//   - Per-bit cpuif_wr_biten (not byte wstrb)
+//   - Split rd_ack / wr_ack, in-order, no IDs
+//   - Single outstanding request per direction
+//   - cpuif_rd_data is registered so it remains stable the cycle
+//     cpuif_rd_ack pulses. Wrapper modules and downstream consumers
+//     may sample {rd_data, rd_ack} together without timing races.
+// =============================================================================
+module {{ self::sv_module_name(block.name) }}
+  import {{ self::sv_package_name(block.name) }}::*;
+(
+  input  logic                          clk,
+  input  logic                          rst_n,
+
+  // ---- Internal CPUIF -------------------------------------------------------
+  input  logic                          cpuif_req,
+  input  logic                          cpuif_req_is_wr,
+  input  logic [CPUIF_ADDR_W-1:0]       cpuif_addr,
+  input  logic [CPUIF_DATA_W-1:0]       cpuif_wr_data,
+  input  logic [CPUIF_DATA_W-1:0]       cpuif_wr_biten,
+
+  output logic                          cpuif_rd_ack,
+  output logic                          cpuif_rd_err,
+  output logic [CPUIF_DATA_W-1:0]       cpuif_rd_data,
+
+  output logic                          cpuif_wr_ack,
+  output logic                          cpuif_wr_err,
+
+  // ---- HW observation port --------------------------------------------------
+  output {{ self::sv_hwif_out_struct(block.name) }} hwif_out{% if self.has_hw_in_port(block) %},
+
+  // ---- HW write port --------------------------------------------------------
+  input  {{ self::sv_hwif_in_struct(block.name) }} hwif_in{% endif %}{% if self.has_any_intr(block) %}{% if self.has_root_irq(block) %},
+
+  // ---- IRQ outputs ----------------------------------------------------------
+  output logic                          irq{% endif %}{% for group in self.intr_groups(block) %},
+  output logic                          irq_{{ group }}{% endfor %}{% endif %}
+);
+
+  // ---------------------------------------------------------------------------
+  // Per-register read masks (RW+RO bits exposed; WO bits return zero on read).
+  // Widened to the full word when `reserved-behavior` is `ro_preserve` or
+  // `rw_storage`. External registers skip the mask — user RTL drives rd_data.
+  // ---------------------------------------------------------------------------
+{%- for method in block.methods %}
+{%- if let BlockMethodType::Register { .. } = method.method_type %}
+{%- if !self.register_is_external(method) %}
+{%- if let Some(rm) = self.read_mask_lit(method) %}
+  localparam logic [{{ self::sv_reg_storage_width(self.method_field_set(method).unwrap()) - 1 }}:0] RD_MASK_{{ method.name.to_case(Case::UpperSnake) }} = {{ rm }};
+{%- endif %}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+
+  // ---------------------------------------------------------------------------
+  // Per-register storage (skipped for `external` registers — no flop)
+  // ---------------------------------------------------------------------------
+{%- for method in block.methods %}
+{%- if let BlockMethodType::Register { field_set_name, .. } = method.method_type %}
+{%- if !self.register_is_external(method) %}
+{%- if let Some(field_set) = self.find_field_set(field_set_name) %}
+{%- for inst in self.instances(method) %}
+  logic [{{ self::sv_reg_storage_width(field_set) - 1 }}:0] {{ self::sv_reg_storage_name(method.name) }}{{ inst.suffix_snake }};
+{%- endfor %}
+{%- endif %}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+
+  // ---------------------------------------------------------------------------
+  // Address decode (per-instance write/read hits)
+  // ---------------------------------------------------------------------------
+{%- for method in block.methods %}
+{%- if let BlockMethodType::Register { .. } = method.method_type %}
+{%- for inst in self.instances(method) %}
+  logic wr_hit_{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }};
+  logic rd_hit_{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }};
+  assign wr_hit_{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }} = cpuif_req &&  cpuif_req_is_wr && (cpuif_addr == {{ self::sv_reg_addr_const(block.name, method.name) }}{{ inst.suffix_upper }});
+  assign rd_hit_{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }} = cpuif_req && !cpuif_req_is_wr && (cpuif_addr == {{ self::sv_reg_addr_const(block.name, method.name) }}{{ inst.suffix_upper }});
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+{%- for cmd in self.command_strobe_entries(block) %}
+  logic wr_hit_cmd_{{ cmd.name }};
+  logic rd_hit_cmd_{{ cmd.name }};
+  assign wr_hit_cmd_{{ cmd.name }} = cpuif_req &&  cpuif_req_is_wr && (cpuif_addr == {{ cmd.addr_const }});
+  assign rd_hit_cmd_{{ cmd.name }} = cpuif_req && !cpuif_req_is_wr && (cpuif_addr == {{ cmd.addr_const }});
+{%- endfor %}
+{%- for buf in self.buffer_fifo_entries(block) %}
+  logic wr_hit_buf_{{ buf.name }};
+  logic rd_hit_buf_{{ buf.name }};
+  assign wr_hit_buf_{{ buf.name }} = cpuif_req &&  cpuif_req_is_wr && (cpuif_addr == {{ buf.addr_const }});
+  assign rd_hit_buf_{{ buf.name }} = cpuif_req && !cpuif_req_is_wr && (cpuif_addr == {{ buf.addr_const }});
+{%- endfor %}
+
+  // ---------------------------------------------------------------------------
+  // Storage flops — one `always_ff` per field. Each field's slice has a
+  // private precedence cascade: reset → HW write (`hwif_in.<f>_we`)
+  //                             → SW write (on-write) → SW read modifier.
+  // `external` registers are skipped (no storage).
+  // ---------------------------------------------------------------------------
+{%- for method in block.methods %}
+{%- if let BlockMethodType::Register { .. } = method.method_type %}
+{%- if !self.register_is_external(method) %}
+{%- if let Some(field_set) = self.method_field_set(method) %}
+{%- for inst in self.instances(method) %}
+{%- for field in field_set.fields %}
+{{ self.field_flop(method, field, inst) }}
+{%- endfor %}
+{{ self.reserved_bits_flop(method, field_set, inst) }}
+{%- endfor %}
+{%- endif %}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+
+  // ---------------------------------------------------------------------------
+  // Read mux + decode-hit aggregation
+  // ---------------------------------------------------------------------------
+  logic any_hit;
+  assign any_hit =
+{%- for method in block.methods %}
+{%- if let BlockMethodType::Register { .. } = method.method_type %}
+{%- for inst in self.instances(method) %}
+      wr_hit_{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }} | rd_hit_{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }} |
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+{%- for cmd in self.command_strobe_entries(block) %}
+      wr_hit_cmd_{{ cmd.name }} | rd_hit_cmd_{{ cmd.name }} |
+{%- endfor %}
+{%- for buf in self.buffer_fifo_entries(block) %}
+{%- if buf.bus_pushes %}
+      wr_hit_buf_{{ buf.name }} |
+{%- endif %}
+{%- if buf.bus_pops %}
+      rd_hit_buf_{{ buf.name }} |
+{%- endif %}
+{%- endfor %}
+      1'b0;
+
+  // Combinational read mux. Captured into `cpuif_rd_data` on the next
+  // posedge so the registered output remains stable the cycle
+  // `cpuif_rd_ack` pulses (otherwise wrapper handshakes that gate
+  // `cpuif_req` on `~pready` would see the mux collapse to '0).
+  logic [CPUIF_DATA_W-1:0] cpuif_rd_data_next;
+  always_comb begin
+    cpuif_rd_data_next = '0;
+    unique case (1'b1)
+{%- for method in block.methods %}
+{%- if let BlockMethodType::Register { .. } = method.method_type %}
+{%- for inst in self.instances(method) %}
+{%- if self.register_is_external(method) %}
+      rd_hit_{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }}: cpuif_rd_data_next = CPUIF_DATA_W'(hwif_in.{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }}_ext_rd_data);
+{%- else %}
+      rd_hit_{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }}: cpuif_rd_data_next = CPUIF_DATA_W'({{ self::sv_reg_storage_name(method.name) }}{{ inst.suffix_snake }} & RD_MASK_{{ method.name.to_case(Case::UpperSnake) }});
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+{%- for cmd in self.command_strobe_entries(block) %}
+{%- if cmd.has_resp() %}
+      rd_hit_cmd_{{ cmd.name }}: cpuif_rd_data_next = CPUIF_DATA_W'(storage_cmd_{{ cmd.name }});
+{%- else %}
+      rd_hit_cmd_{{ cmd.name }}: cpuif_rd_data_next = '0;
+{%- endif %}
+{%- endfor %}
+{%- for buf in self.buffer_fifo_entries(block) %}
+{%- if buf.bus_pops %}
+      rd_hit_buf_{{ buf.name }}: cpuif_rd_data_next = hwif_in.buf_{{ buf.name }}_rdata;
+{%- endif %}
+{%- endfor %}
+      default: cpuif_rd_data_next = '0;
+    endcase
+  end
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      cpuif_rd_data <= '0;
+    end else if (cpuif_req && !cpuif_req_is_wr) begin
+      cpuif_rd_data <= cpuif_rd_data_next;
+    end
+  end
+
+  // ---------------------------------------------------------------------------
+  // Ack / err — SLVERR when request hits no register inside this block
+  // ---------------------------------------------------------------------------
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      cpuif_rd_ack <= 1'b0;
+      cpuif_wr_ack <= 1'b0;
+      cpuif_rd_err <= 1'b0;
+      cpuif_wr_err <= 1'b0;
+    end else begin
+      cpuif_rd_ack <= cpuif_req && !cpuif_req_is_wr;
+      cpuif_wr_ack <= cpuif_req &&  cpuif_req_is_wr;
+      cpuif_rd_err <= cpuif_req && !cpuif_req_is_wr && !any_hit;
+      cpuif_wr_err <= cpuif_req &&  cpuif_req_is_wr && !any_hit;
+    end
+  end
+
+  // ---------------------------------------------------------------------------
+  // HW observation assignments. Internal regs expose `hwif_out.<reg>` =
+  // storage; external regs expose `<reg>_ext_wr_hit` + `<reg>_ext_wr_data`
+  // instead so user RTL sees the bus transaction directly.
+  // ---------------------------------------------------------------------------
+{%- for method in block.methods %}
+{%- if let BlockMethodType::Register { .. } = method.method_type %}
+{%- for inst in self.instances(method) %}
+{%- if self.register_is_external(method) %}
+  assign hwif_out.{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }}_ext_wr_hit  = wr_hit_{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }};
+  assign hwif_out.{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }}_ext_rd_hit  = rd_hit_{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }};
+  assign hwif_out.{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }}_ext_wr_data = cpuif_wr_data;
+{%- else %}
+  assign hwif_out.{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }} = {{ self::sv_reg_storage_name(method.name) }}{{ inst.suffix_snake }};
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+
+{%- if self.has_any_intr(block) %}
+
+  // ---------------------------------------------------------------------------
+  // Interrupt edge-detect prev registers + event signals
+  // ---------------------------------------------------------------------------
+{%- for src in self.intr_sources(block) %}
+{%- if let Some(prev) = src.prev_signal %}
+  logic {{ prev }};
+  always_ff @(posedge clk) begin
+    if (!rst_n) {{ prev }} <= 1'b0;
+    else        {{ prev }} <= hwif_in.{{ src.hwif_field_name }}_intr;
+  end
+{%- endif %}
+  wire {{ src.event_signal }} = {{ self.intr_event_expr(src) }};
+{%- endfor %}
+
+  // ---------------------------------------------------------------------------
+  // IRQ OR-reduce outputs
+  // ---------------------------------------------------------------------------
+{%- if self.has_root_irq(block) %}
+  assign irq = {{ self.intr_root_or(block) }};
+{%- endif %}
+{%- for group in self.intr_groups(block) %}
+  assign irq_{{ group }} = {{ self.intr_named_group_or(block, group) }};
+{%- endfor %}
+{%- endif %}
+
+{%- if self.has_fifo_buffers(block) %}
+
+  // ---------------------------------------------------------------------------
+  // Buffer FIFO handshake (M6b)
+  // Bus writes pulse `hwif_out.buf_<n>_push` for one cycle (combinational
+  // with `wr_hit_buf_<n>`) and drive `hwif_out.buf_<n>_wdata` to
+  // `cpuif_wr_data`. Bus reads pulse `hwif_out.buf_<n>_pop` and return
+  // `hwif_in.buf_<n>_rdata`. The regblock intentionally does NOT
+  // instantiate FIFO storage — user RTL plugs its own FIFO into the
+  // hwif handshake. Status/level/full/empty exposure to SW is left to
+  // the user (declare a separate RO register wired to `hwif_in`).
+  // ---------------------------------------------------------------------------
+{%- for buf in self.buffer_fifo_entries(block) %}
+{%- if buf.bus_pushes %}
+  assign hwif_out.buf_{{ buf.name }}_push  = wr_hit_buf_{{ buf.name }};
+  assign hwif_out.buf_{{ buf.name }}_wdata = cpuif_wr_data;
+{%- endif %}
+{%- if buf.bus_pops %}
+  assign hwif_out.buf_{{ buf.name }}_pop   = rd_hit_buf_{{ buf.name }};
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+
+{%- if self.has_strobe_commands(block) %}
+
+  // ---------------------------------------------------------------------------
+  // Command strobe handshake (M6a)
+  // Bus write at the command address pulses `hwif_out.cmd_<n>_strobe` for
+  // exactly one cycle (combinational with `wr_hit_cmd_<n>`). When the
+  // command declares `fields-in`, the bus write data is also exposed on
+  // `hwif_out.cmd_<n>_in` during the strobe. When `fields-out` is set, the
+  // response register `storage_cmd_<n>` latches `hwif_in.cmd_<n>_resp`
+  // whenever `hwif_in.cmd_<n>_resp_valid` is high — bus reads return it.
+  // ---------------------------------------------------------------------------
+{%- for cmd in self.command_strobe_entries(block) %}
+  assign hwif_out.cmd_{{ cmd.name }}_strobe = wr_hit_cmd_{{ cmd.name }};
+{%- if cmd.has_payload() %}
+  assign hwif_out.cmd_{{ cmd.name }}_in     = cpuif_wr_data[{{ cmd.in_width - 1 }}:0];
+{%- endif %}
+{%- if cmd.has_resp() %}
+  logic [{{ cmd.out_width - 1 }}:0] storage_cmd_{{ cmd.name }};
+  always_ff @(posedge clk) begin
+    if (!rst_n) storage_cmd_{{ cmd.name }} <= '0;
+    else if (hwif_in.cmd_{{ cmd.name }}_resp_valid)
+      storage_cmd_{{ cmd.name }} <= hwif_in.cmd_{{ cmd.name }}_resp;
+  end
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+
+  // ---------------------------------------------------------------------------
+  // Skipped block-method kinds (Rust-target-only constructs)
+  // ---------------------------------------------------------------------------
+{%- for method in block.methods %}
+{%- match method.method_type %}
+{%- when BlockMethodType::Command { hw_handshake, .. } %}
+{%- if hw_handshake.is_none() %}
+  // SKIPPED: command `{{ self::sv_reg_name(method.name) }}` (no `hw-handshake` set — Rust-target-only command)
+{%- endif %}
+{%- when BlockMethodType::Buffer { hw_kind, .. } %}
+{%- if hw_kind.is_none() %}
+  // SKIPPED: buffer `{{ self::sv_reg_name(method.name) }}` (no `hw-kind` set — Rust-target-only buffer)
+{%- endif %}
+{%- when BlockMethodType::Block { .. } %}
+  // SKIPPED: sub-block `{{ self::sv_reg_name(method.name) }}` (nested blocks not yet implemented in SV target)
+{%- when _ %}
+{%- endmatch %}
+{%- endfor %}
+
+endmodule : {{ self::sv_module_name(block.name) }}

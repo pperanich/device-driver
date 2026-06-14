@@ -1,0 +1,32 @@
+// =============================================================================
+// Native CPUIF passthrough wrapper.
+// Structural identity — exposes the regs module's CPUIF directly. Useful
+// when the surrounding design already speaks CPUIF or has its own glue.
+// =============================================================================
+module {{ dev_name }}_native
+  import {{ dev_name }}_pkg::*;
+(
+  input  logic                          clk,
+  input  logic                          rst_n,
+
+  input  logic                          cpuif_req,
+  input  logic                          cpuif_req_is_wr,
+  input  logic [CPUIF_ADDR_W-1:0]       cpuif_addr,
+  input  logic [CPUIF_DATA_W-1:0]       cpuif_wr_data,
+  input  logic [CPUIF_DATA_W-1:0]       cpuif_wr_biten,
+
+  output logic                          cpuif_rd_ack,
+  output logic                          cpuif_rd_err,
+  output logic [CPUIF_DATA_W-1:0]       cpuif_rd_data,
+  output logic                          cpuif_wr_ack,
+  output logic                          cpuif_wr_err,
+
+  output {{ dev_name }}__out_t          hwif_out{% if has_hw_in_port %},
+  input  {{ dev_name }}__in_t           hwif_in{% endif %}{% if has_root_irq %},
+  output logic                          irq{% endif %}{% for group in intr_groups %},
+  output logic                          irq_{{ group }}{% endfor %}
+);
+
+  {{ dev_name }}_regs u_regs (.*);
+
+endmodule : {{ dev_name }}_native

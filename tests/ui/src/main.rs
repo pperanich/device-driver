@@ -107,6 +107,25 @@ fn accept(cases_dir: &Path) {
                 )
                 .unwrap();
             }
+
+            // Regenerate SV snapshot if the case has opted in (file already exists).
+            let sv_output_name = format!("{}.sv", test_case.file_name().display());
+            let sv_output_path = test_case.path().join(&sv_output_name);
+            if sv_output_path.exists() && source_extension == "ddsl" {
+                use device_driver_core::{CodegenTarget, CompileOptions};
+                let sv_options = CompileOptions {
+                    general_options: device_driver_core::GeneralOptions { ui_test_mode: true },
+                    mir_options: device_driver_core::MirOptions {
+                        check_assumptions: true,
+                        ..Default::default()
+                    },
+                    target: CodegenTarget::SystemVerilog(Default::default()),
+                };
+                let (sv_transformed, _sv_diagnostics) =
+                    device_driver_core::compile(&source, sv_options).unwrap();
+                let sv_output = device_driver_tests::OUTPUT_HEADER_SV.to_string() + &sv_transformed;
+                std::fs::write(&sv_output_path, sv_output).unwrap();
+            }
         }
     }
 }

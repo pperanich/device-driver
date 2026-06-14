@@ -43,13 +43,16 @@ pub fn compile(source: &str, options: CompileOptions) -> Result<(String, Diagnos
         let _ = write!(code, "\n{}\n", options.target.create_error_message());
     }
 
-    // TODO: Make formatting dependent on the target. Right now it's just Rust
-    let formatted_code = match format_code(&code) {
-        Ok(formatted_code) => formatted_code,
-        Err(e) => format!(
-            "{}\n\n{code}",
-            e.to_string().lines().map(|e| format!("// {e}")).join("\n")
-        ),
+    let formatted_code = if options.target.should_format_as_rust() {
+        match format_code(&code) {
+            Ok(formatted_code) => formatted_code,
+            Err(e) => format!(
+                "{}\n\n{code}",
+                e.to_string().lines().map(|e| format!("// {e}")).join("\n")
+            ),
+        }
+    } else {
+        code
     };
 
     let preamble = options.target.to_comments(&format!(
@@ -82,6 +85,44 @@ For more information about device-driver, visit the website: {}",
     let formatted_code = preamble + "\n\n" + &formatted_code;
 
     Ok((formatted_code, diagnostics))
+}
+
+/// Multi-file variant of `compile`. Returns one `(filename, content)` pair per
+/// artifact the target produces. The Rust target always returns exactly one
+/// entry; the SV target returns the regs+package file plus one wrapper per
+/// requested `sv-bus:` adapter, plus optional SVA + UVM RAL files.
+pub fn compile_files(
+    source: &str,
+    options: CompileOptions,
+) -> Result<(Vec<(String, String)>, Diagnostics), DynError> {
+    let mut diagnostics = Diagnostics::new();
+
+    let tokens = device_driver_lexer::lex(source);
+    let ast = device_driver_parser::parse(&tokens, &mut diagnostics);
+    let mir = device_driver_mir::lower_ast(ast, &options.mir_options, &mut diagnostics)
+        .with_message(|| "could not lower AST to MIR")?;
+    let lir = device_driver_lir::lower_mir(mir).with_message(|| "could not lower MIR to LIR")?;
+    let mut files = device_driver_codegen::codegen_files(&options.target, &lir, source);
+
+    if diagnostics.has_error()
+        && let Some((_, content)) = files.first_mut()
+    {
+        let _ = write!(content, "\n{}\n", options.target.create_error_message());
+    }
+
+    if options.target.should_format_as_rust() {
+        for (_name, content) in files.iter_mut() {
+            *content = match format_code(content) {
+                Ok(formatted) => formatted,
+                Err(e) => format!(
+                    "{}\n\n{content}",
+                    e.to_string().lines().map(|e| format!("// {e}")).join("\n")
+                ),
+            };
+        }
+    }
+
+    Ok((files, diagnostics))
 }
 
 #[cfg(feature = "gen-docs")]

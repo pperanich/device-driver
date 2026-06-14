@@ -1,0 +1,26 @@
+/// Exercises the field-level `on-read` modifier (read-clear / read-set)
+/// landing in the SystemVerilog target. Rust target ignores it.
+device OnReadModifiers {
+    byte-order: LE,
+    register-address-type: u8,
+
+    /// Status register: a mix of plain, read-clear and read-set fields.
+    register Status {
+        address: 0,
+        fields: fieldset StatusFields {
+            size-bytes: 1,
+
+            /// Plain (default) — read is purely combinational.
+            field flag 0 -> bool,
+
+            /// Read-clear (RC): bit clears after SW reads the register.
+            field sticky_overflow 1 -> bool { on-read: clear },
+
+            /// Read-set (RS): bit sets after SW reads the register.
+            field self_arming 2 -> bool { on-read: set },
+
+            /// Combined with on-write: W1C and RC on the same field.
+            field combo 3 -> bool { on-write: clear, on-read: clear },
+        }
+    }
+}

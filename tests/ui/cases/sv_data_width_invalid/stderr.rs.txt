@@ -1,0 +1,7 @@
+error: The device driver input has errors that need to be solved!
+   --> sv_data_width_invalid.rs:185:1
+    |
+185 | compile_error!("The device driver input has errors that need to be solved!");
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: could not compile `sv_data_width_invalid` (bin "sv_data_width_invalid") due to 1 previous error

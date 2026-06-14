@@ -1,0 +1,19 @@
+/// Exercises `sv-bus: apb3` device-level property — requests the SystemVerilog
+/// target emit an APB3 wrapper module around the regs CPUIF. Rust target
+/// ignores `sv-bus`.
+device Apb3Basic {
+    byte-order: LE,
+    register-address-type: u8,
+    sv-bus: native,
+    sv-bus: apb3,
+
+    /// Plain RW register, just enough to validate the wrapper signal path.
+    register Ctrl {
+        address: 0,
+        fields: fieldset CtrlFields {
+            size-bytes: 1,
+            field enable 0 -> bool,
+            field mode 3:1 -> uint,
+        }
+    }
+}

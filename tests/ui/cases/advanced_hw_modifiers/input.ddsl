@@ -1,0 +1,29 @@
+/// Exercises advanced HW-side strobes and the singlepulse modifier on top of
+/// the per-field always_ff cascade. Rust target ignores these attributes.
+device AdvancedHwModifiers {
+    byte-order: LE,
+    register-address-type: u8,
+
+    /// Mixed control + status register stressing the full cascade.
+    register Mixed {
+        address: 0,
+        fields: fieldset MixedFields {
+            size-bytes: 1,
+
+            /// Sticky alarm: HW pulses `hwset` when an event occurs, SW
+            /// observes via read, SW W1C acknowledges and clears.
+            field alarm 0 -> bool { hw-set: allow, on-write: clear },
+
+            /// HW-driven busy flag with an explicit HW clear strobe — HW can
+            /// asynchronously force the flag low without re-reading storage.
+            field busy 1 -> bool { hw-access: RW, hw-clr: allow },
+
+            /// Doorbell: SW writes 1 to fire a one-cycle pulse to HW, then the
+            /// field auto-clears next cycle (single-cycle command strobe).
+            field doorbell 2 -> bool { singlepulse: allow },
+
+            /// Plain SW RW for cascade-parity coverage.
+            field scratch 7:4 -> uint,
+        }
+    }
+}

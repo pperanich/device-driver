@@ -7,8 +7,9 @@ use device_driver_common::{
     identifier::{All, Identifier, IdentifierRef, Operation, RuntimeType, Type},
     span::{Span, SpanExt, Spanned},
     specifiers::{
-        Access, AddressMode, AddressRange, BaseType, ByteOrder, Integer, NodeType, Repeat,
-        ResetValue, TypeConversion,
+        Access, AddressMode, AddressRange, BaseType, ByteOrder, HwAccess, HwHandshake, HwKind,
+        Integer, IntrTrigger, NodeType, OnRead, OnWrite, Precedence, Repeat, ReservedBehavior,
+        ResetValue, SvBus, TypeConversion,
     },
 };
 
@@ -259,7 +260,7 @@ impl Device {
         .map(|(object, _)| object)
     }
 }
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DeviceConfig {
     /// The id of the device that owns this config. If None, then this is a manifest config
     pub owner: Option<UniqueId>,
@@ -269,6 +270,93 @@ pub struct DeviceConfig {
     pub buffer_address_type: Option<Spanned<Integer>>,
     pub name_word_boundaries: Option<Vec<Boundary>>,
     pub register_address_mode: Option<Spanned<AddressMode>>,
+    /// SystemVerilog bus adapters the user wants emitted alongside the regblock.
+    /// Empty Vec means no wrappers are produced (the bare `_regs` module ships
+    /// alone). Each entry produces a `<dev>_<bus>.sv` file.
+    pub sv_bus: Vec<Spanned<SvBus>>,
+    /// SystemVerilog Assertion (SVA) categories the user wants emitted in
+    /// `<dev>_sva.sv`. If all flags are off, no checker module / bind snippet
+    /// is produced.
+    pub sv_assertions: SvAssertOpts,
+    /// When `true`, emit `<dev>_ral_pkg.sv` containing a UVM register model
+    /// (`uvm_reg_field` / `uvm_reg` / `uvm_reg_block` subclasses) for
+    /// verification-team consumption. Defaults to `true` (item 120 from
+    /// the SV-backend roadmap — RAL is normally always wanted by
+    /// verification teams; opt out via `sv-no-ral: allow` only if
+    /// snapshot surface area matters more than RAL availability).
+    /// `sv-ral: allow` is kept as a no-op for back-compat with DSL
+    /// sources that pin the value explicitly.
+    pub sv_ral: bool,
+    /// HDL path prefix wired into the RAL package via
+    /// `add_hdl_path_slice`. e.g. `"u_chip.u_regs"`. None ⇒ paths
+    /// reference the regs module directly with no prefix.
+    pub sv_hdl_path_prefix: Option<String>,
+    /// CPUIF data bus width in bits. Default 32 when unset. Picked up by
+    /// the SV target's `data_width()` helper; overrides the CLI option of
+    /// the same name when both are provided. Spanned so
+    /// `bus_compat_checked` can point a diagnostic at the source if the
+    /// value or its combination with `sv-bus:` is unsupported.
+    pub sv_data_width: Option<Spanned<u32>>,
+    /// When `false`, the regblock suppresses the root `irq` OR-reduce
+    /// output port even if ungrouped intr fields exist. Per-group
+    /// `irq_<group>` outputs are unaffected. Default `true`.
+    pub intr_aggregate: Option<bool>,
+    /// Base address for auto-synthesized per-group enable companion
+    /// registers. Each distinct group with at least one
+    /// `intr-enable: allow` field occupies one CPUIF-data-width slot,
+    /// starting at this base. None ⇒ no auto-synthesis (an error if any
+    /// field has `intr-enable` set).
+    pub intr_enable_address_base: Option<i128>,
+    /// Same idea for mask companion registers.
+    pub intr_mask_address_base: Option<i128>,
+}
+
+/// Opt-in SVA assertion categories. Each maps to a class of
+/// `assert property` constructs in the emitted `<dev>_sva` checker module
+/// (see SYSTEMVERILOG_DECISIONS.md, Decision 8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub struct SvAssertOpts {
+    /// Each storage register equals its reset value while `!rst_n`.
+    pub reset: bool,
+    /// At most one `rd_hit_*` / `wr_hit_*` asserts per cycle (decode mutex).
+    pub decode_mutex: bool,
+    /// Every `on-write: clear` (W1C) field clears exactly the bits the
+    /// transaction set in `cpuif_wr_data`.
+    pub w1c: bool,
+    /// RO fields' storage never changes from a SW write.
+    pub ro_invariance: bool,
+}
+
+impl SvAssertOpts {
+    /// `true` iff any category is enabled — gates emission of the entire SVA
+    /// file pair.
+    #[must_use]
+    pub fn any(&self) -> bool {
+        self.reset || self.decode_mutex || self.w1c || self.ro_invariance
+    }
+}
+
+impl Default for DeviceConfig {
+    fn default() -> Self {
+        Self {
+            owner: None,
+            byte_order: None,
+            register_address_type: None,
+            command_address_type: None,
+            buffer_address_type: None,
+            name_word_boundaries: None,
+            register_address_mode: None,
+            sv_bus: Vec::new(),
+            sv_assertions: SvAssertOpts::default(),
+            // Default `sv_ral` to true — `sv-no-ral: allow` opts out.
+            sv_ral: true,
+            sv_hdl_path_prefix: None,
+            sv_data_width: None,
+            intr_aggregate: None,
+            intr_enable_address_base: None,
+            intr_mask_address_base: None,
+        }
+    }
 }
 
 impl DeviceConfig {
@@ -286,6 +374,33 @@ impl DeviceConfig {
                 .or(self.name_word_boundaries.as_ref())
                 .cloned(),
             register_address_mode: other.register_address_mode.or(self.register_address_mode),
+            sv_bus: if other.sv_bus.is_empty() {
+                self.sv_bus.clone()
+            } else {
+                other.sv_bus.clone()
+            },
+            sv_assertions: SvAssertOpts {
+                reset: self.sv_assertions.reset || other.sv_assertions.reset,
+                decode_mutex: self.sv_assertions.decode_mutex || other.sv_assertions.decode_mutex,
+                w1c: self.sv_assertions.w1c || other.sv_assertions.w1c,
+                ro_invariance: self.sv_assertions.ro_invariance
+                    || other.sv_assertions.ro_invariance,
+            },
+            // RAL is opt-out: any layer that says "no" wins. Two
+            // defaults-of-true AND together to true; a `sv-no-ral` at
+            // either layer wins and suppresses the package.
+            sv_ral: self.sv_ral && other.sv_ral,
+            sv_hdl_path_prefix: other
+                .sv_hdl_path_prefix
+                .as_ref()
+                .or(self.sv_hdl_path_prefix.as_ref())
+                .cloned(),
+            sv_data_width: other.sv_data_width.or(self.sv_data_width),
+            intr_aggregate: other.intr_aggregate.or(self.intr_aggregate),
+            intr_enable_address_base: other
+                .intr_enable_address_base
+                .or(self.intr_enable_address_base),
+            intr_mask_address_base: other.intr_mask_address_base.or(self.intr_mask_address_base),
         }
     }
 }
@@ -532,6 +647,15 @@ pub struct Register {
     pub reset_value: Option<Spanned<ResetValue>>,
     pub repeat: Option<Repeat>,
     pub field_set_ref: Spanned<IdentifierRef<Type>>,
+    /// How bits not covered by any field behave under SW access. Default
+    /// `RoZero` (read as 0, writes dropped).
+    pub reserved_behavior: ReservedBehavior,
+    /// When `true`, the register has no internal storage flop. The
+    /// regblock instead exposes `<reg>_ext_wr_hit` / `_ext_rd_hit` /
+    /// `_ext_wr_data` ports on `hwif_out` and reads
+    /// `hwif_in.<reg>_ext_rd_data`. SW transactions are translated
+    /// directly into user RTL handshake.
+    pub external: bool,
     /// Span of the whole object
     pub span: Span,
 }
@@ -559,6 +683,34 @@ pub struct Field {
     pub description: String,
     pub name: Spanned<Identifier<All>>,
     pub access: Access,
+    pub on_write: Option<OnWrite>,
+    pub on_read: Option<OnRead>,
+    pub hw_access: Option<HwAccess>,
+    pub hw_clr: bool,
+    pub hw_set: bool,
+    pub singlepulse: bool,
+    pub precedence: Option<Precedence>,
+    pub intr_trigger: Option<IntrTrigger>,
+    pub intr_group: Option<String>,
+    pub intr_sticky: bool,
+    /// When true, the field opts into a per-group `<group>_intr_enable`
+    /// companion register; its bit gates whether this source's sticky
+    /// storage contributes to `irq_<group>`.
+    pub intr_enable: bool,
+    /// When true, the field opts into a per-group `<group>_intr_mask`
+    /// companion register; setting the mask bit suppresses this source
+    /// from `irq_<group>`.
+    pub intr_mask: bool,
+    /// Optional explicit bit position in the synthesized
+    /// `<group>_intr_enable` companion register. When unset, the
+    /// synthesis pass falls back to declaration order. Set this for
+    /// any field whose enable bit must be ABI-stable across DSL
+    /// reorders (the typical case once a chip tapes out). Spanned so
+    /// the LIR-level collision check can point at the source.
+    pub intr_enable_bit: Option<Spanned<u32>>,
+    /// Same as `intr_enable_bit` but for the `<group>_intr_mask`
+    /// companion register.
+    pub intr_mask_bit: Option<Spanned<u32>>,
     pub base_type: Spanned<BaseType>,
     pub field_conversion: Option<TypeConversion>,
     pub field_address: Spanned<AddressRange>,
@@ -755,6 +907,10 @@ pub struct Command {
 
     pub field_set_ref_in: Option<Spanned<IdentifierRef<Type>>>,
     pub field_set_ref_out: Option<Spanned<IdentifierRef<Type>>>,
+    /// HW-side handshake mode. `None` means the command has no SV target
+    /// emission (current default — preserves backward compatibility with
+    /// pre-M6 cases that defined commands purely as a Rust HAL concept).
+    pub hw_handshake: Option<HwHandshake>,
 
     /// Span of the whole object
     pub span: Span,
@@ -766,6 +922,20 @@ pub struct Buffer {
     pub name: Spanned<Identifier<Operation>>,
     pub access: Access,
     pub address: Spanned<i128>,
+    /// HW mapping for the buffer. `None` keeps the buffer out of the SV
+    /// target (Rust-target-only behaviour, unchanged from pre-M6b).
+    pub hw_kind: Option<HwKind>,
+    /// Capacity hint for the user's FIFO instance. Carried verbatim on the
+    /// generated `<dev>__out_t` struct doc comment; the regblock itself
+    /// does not instantiate the storage.
+    pub depth: Option<u32>,
+    /// Address at which a future companion status register (with
+    /// `level`/`full`/`empty`/`almost_full` fields) will live once
+    /// synthesis lands. Currently surfaced only in doc comments.
+    pub status_address: Option<i128>,
+    /// Number of data words behind a single bus access for streaming
+    /// modes. Currently informational only — emitted in doc comments.
+    pub words: Option<u32>,
     /// Span of the whole object
     pub span: Span,
 }

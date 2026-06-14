@@ -1,0 +1,37 @@
+/// Exercises `sv-assert-*` device-level properties — emits a `<dev>_sva.sv`
+/// checker module and a `<dev>_sva_bind.svh` snippet covering reset, decode
+/// mutex, W1C, and RO invariance. Rust target ignores `sv-assert-*`.
+device SvaBasic {
+    byte-order: LE,
+    register-address-type: u8,
+    sv-bus: apb3,
+    sv-assert-reset: allow,
+    sv-assert-decode-mutex: allow,
+    sv-assert-w1c: allow,
+    sv-assert-ro-invariance: allow,
+
+    /// Status register with W1C bits + reset value 0.
+    register Status {
+        address: 0,
+        access: RW,
+        reset: 0,
+        fields: fieldset StatusFields {
+            size-bytes: 4,
+            field error 0 -> bool { on-write: clear },
+            field warn  1 -> bool { on-write: clear },
+        }
+    },
+
+    /// Fully RO version constant — invariant under SW writes by construction.
+    register Version {
+        address: 4,
+        access: RO,
+        reset: 0xCAFEBABE,
+        fields: fieldset VersionFields {
+            size-bytes: 4,
+            field major RO 31:24 -> uint,
+            field minor RO 23:16 -> uint,
+            field patch RO 15:0  -> uint,
+        }
+    }
+}

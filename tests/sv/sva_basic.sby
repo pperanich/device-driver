@@ -1,0 +1,21 @@
+# SymbiYosys formal-verification driver for the M5b SVA checker.
+#
+# Binds `sva_basic_sva` to `sva_basic_regs` (via the in-file
+# bind snippet) and bounded-model-checks every property for a small
+# trace depth. Intended as a smoke check that the generated SVA
+# survives a tool other than Verilator; not a thorough formal sign-off.
+
+[options]
+mode bmc
+depth 12
+multiclock off
+
+[engines]
+smtbmc
+
+[script]
+read -formal sva_basic.sv
+prep -top sva_basic_regs
+
+[files]
+../ui/cases/sva_basic/sva_basic.sv

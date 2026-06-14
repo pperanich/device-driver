@@ -1,0 +1,17 @@
+/// Exercises `sv-bus: apb4` device-level property — adds PSTRB + PPROT on
+/// top of APB3. Rust target ignores `sv-bus`.
+device Apb4Basic {
+    byte-order: LE,
+    register-address-type: u8,
+    sv-bus: apb4,
+
+    register Ctrl {
+        address: 0,
+        fields: fieldset CtrlFields {
+            size-bytes: 4,
+            field enable 0 -> bool,
+            field mode 7:1 -> uint,
+            field threshold 31:16 -> uint,
+        }
+    }
+}

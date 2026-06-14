@@ -1,0 +1,15 @@
+// =============================================================================
+// SVA bind snippet for `{{ self::sv_module_name(block.name) }}`.
+//
+// Include this header into any compilation unit that already sees both
+// `{{ self::sv_module_name(block.name) }}` and `{{ self::sv_sva_module_name(block.name) }}` — for example, the
+// testbench top-level. The bind attaches one checker instance to every
+// elaboration of `{{ self::sv_module_name(block.name) }}` and ties the checker
+// ports to like-named signals in that scope via `.*`.
+// =============================================================================
+`ifndef {{ self::sv_sva_bind_guard(block.name) }}
+`define {{ self::sv_sva_bind_guard(block.name) }}
+
+bind {{ self::sv_module_name(block.name) }} {{ self::sv_sva_module_name(block.name) }} u_sva (.*);
+
+`endif // {{ self::sv_sva_bind_guard(block.name) }}

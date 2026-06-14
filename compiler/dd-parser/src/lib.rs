@@ -10,7 +10,10 @@ use chumsky::{
 };
 use device_driver_common::{
     span::{Span, SpanExt, Spanned},
-    specifiers::{Access, AddressMode, BaseType, ByteOrder, Integer},
+    specifiers::{
+        Access, AddressMode, BaseType, ByteOrder, HwHandshake, HwKind, Integer, IntrTrigger,
+        OnWrite, Precedence, ReservedBehavior, SvBus,
+    },
 };
 use device_driver_diagnostics::{Diagnostics, errors::ParsingError};
 use device_driver_lexer::Token;
@@ -159,6 +162,13 @@ pub enum Expression<'src> {
     SubNode(Box<Node<'src>>),
     Auto,
     AddressMode(AddressMode),
+    OnWrite(OnWrite),
+    Precedence(Precedence),
+    SvBus(SvBus),
+    IntrTrigger(IntrTrigger),
+    HwHandshake(HwHandshake),
+    HwKind(HwKind),
+    ReservedBehavior(ReservedBehavior),
     Error,
 }
 
@@ -219,6 +229,62 @@ impl<'src> Expression<'src> {
         }
     }
 
+    pub fn as_on_write(&self) -> Option<OnWrite> {
+        if let Self::OnWrite(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_precedence(&self) -> Option<Precedence> {
+        if let Self::Precedence(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_sv_bus(&self) -> Option<SvBus> {
+        if let Self::SvBus(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_intr_trigger(&self) -> Option<IntrTrigger> {
+        if let Self::IntrTrigger(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_hw_handshake(&self) -> Option<HwHandshake> {
+        if let Self::HwHandshake(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_hw_kind(&self) -> Option<HwKind> {
+        if let Self::HwKind(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_reserved_behavior(&self) -> Option<ReservedBehavior> {
+        if let Self::ReservedBehavior(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+
     pub fn get_human_string(&self) -> Cow<'static, str> {
         match self {
             Expression::AddressRange { end, start } => format!("{end}:{start}").into(),
@@ -238,6 +304,13 @@ impl<'src> Expression<'src> {
             Expression::SubNode(val) => val.to_string().into(),
             Expression::Auto => "_".into(),
             Expression::AddressMode(val) => val.to_string().into(),
+            Expression::OnWrite(val) => val.to_string().into(),
+            Expression::Precedence(val) => val.to_string().into(),
+            Expression::SvBus(val) => val.to_string().into(),
+            Expression::IntrTrigger(val) => val.to_string().into(),
+            Expression::HwHandshake(val) => val.to_string().into(),
+            Expression::HwKind(val) => val.to_string().into(),
+            Expression::ReservedBehavior(val) => val.to_string().into(),
             Expression::Error => "ERROR".into(),
         }
     }
@@ -261,6 +334,13 @@ impl<'src> Display for Expression<'src> {
             Expression::SubNode(_) => write!(f, "sub node"),
             Expression::Auto => write!(f, "_"),
             Expression::AddressMode(_) => write!(f, "address mode"),
+            Expression::OnWrite(_) => write!(f, "on-write modifier"),
+            Expression::Precedence(_) => write!(f, "precedence side"),
+            Expression::SvBus(_) => write!(f, "bus protocol"),
+            Expression::IntrTrigger(_) => write!(f, "interrupt trigger"),
+            Expression::HwHandshake(_) => write!(f, "hw handshake mode"),
+            Expression::HwKind(_) => write!(f, "hw kind"),
+            Expression::ReservedBehavior(_) => write!(f, "reserved-bit behavior"),
             Expression::Error => write!(f, "error"),
         }
     }
@@ -493,6 +573,34 @@ pub fn simple_expression<'tokens, 'src: 'tokens>()
         select! { Token::AddressMode(val) => val }
             .map(Expression::AddressMode)
             .labelled("address mode")
+            .as_terminal(),
+        select! { Token::OnWrite(val) => val }
+            .map(Expression::OnWrite)
+            .labelled("on-write modifier")
+            .as_terminal(),
+        select! { Token::Precedence(val) => val }
+            .map(Expression::Precedence)
+            .labelled("precedence side")
+            .as_terminal(),
+        select! { Token::SvBus(val) => val }
+            .map(Expression::SvBus)
+            .labelled("bus protocol")
+            .as_terminal(),
+        select! { Token::IntrTrigger(val) => val }
+            .map(Expression::IntrTrigger)
+            .labelled("interrupt trigger")
+            .as_terminal(),
+        select! { Token::HwHandshake(val) => val }
+            .map(Expression::HwHandshake)
+            .labelled("hw handshake mode")
+            .as_terminal(),
+        select! { Token::HwKind(val) => val }
+            .map(Expression::HwKind)
+            .labelled("hw kind")
+            .as_terminal(),
+        select! { Token::ReservedBehavior(val) => val }
+            .map(Expression::ReservedBehavior)
+            .labelled("reserved-bit behavior")
             .as_terminal(),
     ))
     .map_with(|expression, extra| expression.spanned(extra.span()))

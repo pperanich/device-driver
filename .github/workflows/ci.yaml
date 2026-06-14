@@ -50,6 +50,178 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo run -- build rust -o generated.rs -s device-driver/tests/basic-register.ddsl
 
+  verilator-lint:
+    name: Verilator lint of SV snapshot outputs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install verilator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y verilator
+          verilator --version
+      - name: Lint every `<name>.sv` snapshot in tests/ui/cases
+        run: |
+          set -e
+          fail=0
+          for sv in $(find tests/ui/cases -name '*.sv' -type f); do
+            echo "::group::lint $sv"
+            verilator --lint-only -Wall -sv "$sv" || fail=1
+            echo "::endgroup::"
+          done
+          if [ $fail -ne 0 ]; then
+            echo "verilator lint failures above"
+            exit 1
+          fi
+
+  verilator-sim:
+    name: Verilator functional sims under tests/sv
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install verilator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y verilator
+          verilator --version
+      - name: Build and run tb_hw_writable_status
+        run: |
+          set -e
+          mkdir -p tests/sv/obj_dir
+          cd tests/sv
+          verilator --binary -Wno-fatal -sv \
+            --top-module tb_hw_writable_status \
+            ../ui/cases/hw_writable_status/hw_writable_status.sv \
+            tb_hw_writable_status.sv \
+            -o Vtb_hw_writable_status
+          ./obj_dir/Vtb_hw_writable_status
+      - name: Build and run tb_apb3_basic
+        run: |
+          set -e
+          rm -rf tests/sv/obj_dir
+          cd tests/sv
+          verilator --binary -Wno-fatal -sv \
+            --top-module tb_apb3_basic \
+            ../ui/cases/apb3_basic/apb3_basic.sv \
+            tb_apb3_basic.sv \
+            -o Vtb_apb3_basic
+          ./obj_dir/Vtb_apb3_basic
+      - name: Build and run tb_apb3_read_race
+        run: |
+          set -e
+          rm -rf tests/sv/obj_dir
+          cd tests/sv
+          verilator --binary -Wno-fatal -sv \
+            --top-module tb_apb3_read_race \
+            ../ui/cases/apb3_read_race/apb3_read_race.sv \
+            tb_apb3_read_race.sv \
+            -o Vtb_apb3_read_race
+          ./obj_dir/Vtb_apb3_read_race
+      - name: Build and run tb_axi4lite_basic
+        run: |
+          set -e
+          rm -rf tests/sv/obj_dir
+          cd tests/sv
+          verilator --binary -Wno-fatal -sv \
+            --top-module tb_axi4lite_basic \
+            ../ui/cases/axi4lite_basic/axi4lite_basic.sv \
+            tb_axi4lite_basic.sv \
+            -o Vtb_axi4lite_basic
+          ./obj_dir/Vtb_axi4lite_basic
+      - name: Build and run tb_interrupt_aggregation
+        run: |
+          set -e
+          rm -rf tests/sv/obj_dir
+          cd tests/sv
+          verilator --binary -Wno-fatal -sv \
+            --top-module tb_interrupt_aggregation \
+            ../ui/cases/interrupt_aggregation/interrupt_aggregation.sv \
+            tb_interrupt_aggregation.sv \
+            -o Vtb_interrupt_aggregation
+          ./obj_dir/Vtb_interrupt_aggregation
+      - name: Build and run tb_command_strobe
+        run: |
+          set -e
+          rm -rf tests/sv/obj_dir
+          cd tests/sv
+          verilator --binary -Wno-fatal -sv \
+            --top-module tb_command_strobe \
+            ../ui/cases/command_strobe/command_strobe.sv \
+            tb_command_strobe.sv \
+            -o Vtb_command_strobe
+          ./obj_dir/Vtb_command_strobe
+      - name: Build and run tb_buffer_fifo
+        run: |
+          set -e
+          rm -rf tests/sv/obj_dir
+          cd tests/sv
+          verilator --binary -Wno-fatal -sv \
+            --top-module tb_buffer_fifo \
+            ../ui/cases/buffer_fifo/buffer_fifo.sv \
+            tb_buffer_fifo.sv \
+            -o Vtb_buffer_fifo
+          ./obj_dir/Vtb_buffer_fifo
+      - name: Build and run tb_ahblite_basic
+        run: |
+          set -e
+          rm -rf tests/sv/obj_dir
+          cd tests/sv
+          verilator --binary -Wno-fatal -sv \
+            --top-module tb_ahblite_basic \
+            ../ui/cases/ahblite_basic/ahblite_basic.sv \
+            tb_ahblite_basic.sv \
+            -o Vtb_ahblite_basic
+          ./obj_dir/Vtb_ahblite_basic
+      - name: Build and run tb_reserved_external
+        run: |
+          set -e
+          rm -rf tests/sv/obj_dir
+          cd tests/sv
+          verilator --binary -Wno-fatal -sv \
+            --top-module tb_reserved_external \
+            ../ui/cases/reserved_external/reserved_external.sv \
+            tb_reserved_external.sv \
+            -o Vtb_reserved_external
+          ./obj_dir/Vtb_reserved_external
+      - name: Build and run tb_companion_regs
+        run: |
+          set -e
+          rm -rf tests/sv/obj_dir
+          cd tests/sv
+          verilator --binary -Wno-fatal -sv \
+            --top-module tb_companion_regs \
+            ../ui/cases/companion_regs/companion_regs.sv \
+            tb_companion_regs.sv \
+            -o Vtb_companion_regs
+          ./obj_dir/Vtb_companion_regs
+
+  sva-formal:
+    name: SymbiYosys formal check of M5b SVA snapshot
+    runs-on: ubuntu-latest
+    # Best-effort job: yosys + SymbiYosys may not be available on every
+    # action runner. Continue-on-error keeps merges unblocked if the
+    # tooling isn't reachable. The compile + bound model check itself is
+    # authoritative when it does run.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Yosys + SymbiYosys
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yosys yosys-smtbmc python3-pip
+          pip3 install --user click
+          # SymbiYosys ships as a single Python script (`sby`).
+          git clone --depth 1 https://github.com/YosysHQ/sby.git /tmp/sby
+          sudo make -C /tmp/sby install
+          sby --help | head -5
+      - name: Run sby on sva_basic snapshot
+        run: |
+          set -e
+          cd tests/sv
+          sby -f sva_basic.sby
+
   fuzz:
     runs-on: ubuntu-latest
     steps:

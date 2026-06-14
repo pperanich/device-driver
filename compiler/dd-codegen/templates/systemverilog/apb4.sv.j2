@@ -1,0 +1,98 @@
+// =============================================================================
+// APB4 → native CPUIF wrapper.
+//
+// Identical to APB3 plus:
+//   - PSTRB[CPUIF_DATA_W/8-1:0] per-byte write strobe, fanned out to
+//     cpuif_wr_biten (each strobe bit replicated across its byte).
+//   - PPROT[2:0] protection signal — carried but unused for CSR.
+//
+// PSEL+PENABLE+~PREADY drives cpuif_req. PSLVERR is set from cpuif_*_err.
+// =============================================================================
+module {{ dev_name }}_apb4
+  import {{ dev_name }}_pkg::*;
+(
+  input  logic                          pclk,
+  input  logic                          presetn,
+
+  input  logic                          psel,
+  input  logic                          penable,
+  input  logic                          pwrite,
+  input  logic [CPUIF_ADDR_W-1:0]       paddr,
+  input  logic [CPUIF_DATA_W-1:0]       pwdata,
+  input  logic [CPUIF_DATA_W/8-1:0]     pstrb,
+  input  logic [2:0]                    pprot,
+
+  output logic [CPUIF_DATA_W-1:0]       prdata,
+  output logic                          pready,
+  output logic                          pslverr,
+
+  output {{ dev_name }}__out_t          hwif_out{% if has_hw_in_port %},
+  input  {{ dev_name }}__in_t           hwif_in{% endif %}{% if has_root_irq %},
+  output logic                          irq{% endif %}{% for group in intr_groups %},
+  output logic                          irq_{{ group }}{% endfor %}
+);
+
+  // pprot is informational only on a CSR block; ignore.
+  logic _unused_pprot;
+  assign _unused_pprot = |pprot;
+
+  // ---------------------------------------------------------------------------
+  // Native CPUIF wires
+  // ---------------------------------------------------------------------------
+  logic                          cpuif_req;
+  logic                          cpuif_req_is_wr;
+  logic [CPUIF_ADDR_W-1:0]       cpuif_addr;
+  logic [CPUIF_DATA_W-1:0]       cpuif_wr_data;
+  logic [CPUIF_DATA_W-1:0]       cpuif_wr_biten;
+  logic                          cpuif_rd_ack;
+  logic                          cpuif_rd_err;
+  logic [CPUIF_DATA_W-1:0]       cpuif_rd_data;
+  logic                          cpuif_wr_ack;
+  logic                          cpuif_wr_err;
+
+  // ---------------------------------------------------------------------------
+  // PSTRB → wr_biten fanout. Each byte-strobe bit drives all 8 bits of its byte.
+  // ---------------------------------------------------------------------------
+  genvar i;
+  generate
+    for (i = 0; i < CPUIF_DATA_W/8; i = i + 1) begin : g_strb
+      assign cpuif_wr_biten[i*8 +: 8] = {8{pstrb[i]}};
+    end
+  endgenerate
+
+  // ---------------------------------------------------------------------------
+  // APB → CPUIF: request fires on the ACCESS phase (psel & penable). pready
+  // gates the request so we only present one cycle per transfer.
+  // ---------------------------------------------------------------------------
+  assign cpuif_req       = psel & penable & ~pready;
+  assign cpuif_req_is_wr = pwrite;
+  assign cpuif_addr      = paddr;
+  assign cpuif_wr_data   = pwdata;
+
+  // ---------------------------------------------------------------------------
+  // CPUIF → APB.
+  // ---------------------------------------------------------------------------
+  assign pready  = cpuif_rd_ack | cpuif_wr_ack;
+  assign pslverr = cpuif_rd_err | cpuif_wr_err;
+  assign prdata  = cpuif_rd_data;
+
+  {{ dev_name }}_regs u_regs (
+    .clk            (pclk),
+    .rst_n          (presetn),
+    .cpuif_req      (cpuif_req),
+    .cpuif_req_is_wr(cpuif_req_is_wr),
+    .cpuif_addr     (cpuif_addr),
+    .cpuif_wr_data  (cpuif_wr_data),
+    .cpuif_wr_biten (cpuif_wr_biten),
+    .cpuif_rd_ack   (cpuif_rd_ack),
+    .cpuif_rd_err   (cpuif_rd_err),
+    .cpuif_rd_data  (cpuif_rd_data),
+    .cpuif_wr_ack   (cpuif_wr_ack),
+    .cpuif_wr_err   (cpuif_wr_err),
+    .hwif_out       (hwif_out){% if has_hw_in_port %},
+    .hwif_in        (hwif_in){% endif %}{% if has_root_irq %},
+    .irq            (irq){% endif %}{% for group in intr_groups %},
+    .irq_{{ group }} (irq_{{ group }}){% endfor %}
+  );
+
+endmodule : {{ dev_name }}_apb4

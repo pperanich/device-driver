@@ -1,0 +1,42 @@
+/// Stress case for the APB3 wrapper read path. Three registers at
+/// distinct addresses with distinct content patterns lets the TB walk
+/// back-to-back reads, insert idle cycles, and exercise read-after-write
+/// — all paths that would have returned `'0` before
+/// `cpuif_rd_data` was registered (the wrapper drops `cpuif_req` when
+/// pready rises, which collapses the combinational read mux on the
+/// same cycle the master samples prdata).
+device Apb3ReadRace {
+    byte-order: LE,
+    register-address-type: u8,
+    sv-bus: apb3,
+
+    register RegA {
+        address: 0,
+        access: RW,
+        reset: 0xAAAA_AAAA,
+        fields: fieldset RegAFields {
+            size-bytes: 4,
+            field value 31:0 -> uint,
+        }
+    },
+
+    register RegB {
+        address: 4,
+        access: RW,
+        reset: 0xBBBB_BBBB,
+        fields: fieldset RegBFields {
+            size-bytes: 4,
+            field value 31:0 -> uint,
+        }
+    },
+
+    register RegC {
+        address: 8,
+        access: RW,
+        reset: 0xCCCC_CCCC,
+        fields: fieldset RegCFields {
+            size-bytes: 4,
+            field value 31:0 -> uint,
+        }
+    }
+}

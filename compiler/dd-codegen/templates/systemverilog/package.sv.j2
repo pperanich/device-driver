@@ -1,0 +1,136 @@
+// =============================================================================
+// Package: {{ self::sv_package_name(block.name) }}
+// =============================================================================
+package {{ self::sv_package_name(block.name) }};
+
+  // ---- Bus parameters -------------------------------------------------------
+  localparam int unsigned CPUIF_ADDR_W = {{ self.addr_width() }};
+  localparam int unsigned CPUIF_DATA_W = {{ self.data_width() }};
+
+  // ---- Per-fieldset packed structs ------------------------------------------
+{%- for field_set in driver.field_sets %}
+  typedef struct packed {
+{%- for field in field_set.fields %}
+    logic {{ self::sv_logic_width(self::sv_field_width(field.address)) }} {{ self::sv_field_name(field) }}; // {{ self::sv_access_comment(field.access) }} bits {{ field.address_text() }}
+{%- endfor %}
+  } {{ self::sv_field_set_struct_name(field_set) }};
+
+{%- endfor %}
+
+  // ---- Register address constants -------------------------------------------
+{%- for method in block.methods %}
+{%- if let BlockMethodType::Register { .. } = method.method_type %}
+{%- for inst in self.instances(method) %}
+  localparam logic [CPUIF_ADDR_W-1:0] {{ self::sv_reg_addr_const(block.name, method.name) }}{{ inst.suffix_upper }} = {{ self::sv_hex_addr(inst.address) }};
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+
+  // ---- Command strobe address constants -------------------------------------
+{%- for cmd in self.command_strobe_entries(block) %}
+  localparam logic [CPUIF_ADDR_W-1:0] {{ cmd.addr_const }} = {{ self::sv_hex_addr(cmd.address) }};
+{%- endfor %}
+
+  // ---- Buffer (FIFO) address constants --------------------------------------
+{%- for buf in self.buffer_fifo_entries(block) %}
+  localparam logic [CPUIF_ADDR_W-1:0] {{ buf.addr_const }} = {{ self::sv_hex_addr(buf.address) }};
+{%- endfor %}
+
+  // ---- Top-level hwif (HW observation port) ---------------------------------
+  // Raw register storage values, surrounded by reserved-bit zeros (if any).
+  // Project named fields via the per-fieldset struct typedef above:
+  //   <fs>_t f = <fs>_t'(hwif_out.<reg>);
+  typedef struct packed {
+{%- for method in block.methods %}
+{%- if let BlockMethodType::Register { field_set_name, .. } = method.method_type %}
+{%- if let Some(field_set) = self.find_field_set(field_set_name) %}
+{%- for inst in self.instances(method) %}
+{%- if self.register_is_external(method) %}
+    // external `{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }}` — bus → user RTL
+    logic                                          {{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }}_ext_wr_hit;
+    logic                                          {{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }}_ext_rd_hit;
+    logic [{{ self::sv_reg_storage_width(field_set) - 1 }}:0] {{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }}_ext_wr_data;
+{%- else %}
+    logic [{{ self::sv_reg_storage_width(field_set) - 1 }}:0] {{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }};
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+{%- for cmd in self.command_strobe_entries(block) %}
+    // command `{{ cmd.name }}` — strobe handshake
+    logic                                          cmd_{{ cmd.name }}_strobe;
+{%- if cmd.has_payload() %}
+    logic [{{ cmd.in_width - 1 }}:0]                       cmd_{{ cmd.name }}_in;
+{%- endif %}
+{%- endfor %}
+{%- for buf in self.buffer_fifo_entries(block) %}
+    // buffer `{{ buf.name }}` — FIFO {% if let Some(d) = buf.depth %}depth={{ d }} {% endif %}({% if buf.bus_pushes %}bus pushes{% endif %}{% if buf.bus_pushes && buf.bus_pops %}, {% endif %}{% if buf.bus_pops %}bus pops{% endif %})
+{%- if buf.bus_pushes %}
+    logic                                          buf_{{ buf.name }}_push;
+    logic [CPUIF_DATA_W-1:0]                       buf_{{ buf.name }}_wdata;
+{%- endif %}
+{%- if buf.bus_pops %}
+    logic                                          buf_{{ buf.name }}_pop;
+{%- endif %}
+{%- endfor %}
+  } {{ self::sv_hwif_out_struct(block.name) }};
+
+{% if self.has_hw_in_port(block) %}
+  // ---- Top-level hwif (HW write port) ---------------------------------------
+  // Per HW-writable field: `<reg>_<field>` carries the candidate value;
+  // `<reg>_<field>_we` is a single-cycle strobe that latches it into storage.
+  // HW writes take precedence over SW writes on the same cycle.
+  typedef struct packed {
+{%- for method in block.methods %}
+{%- if let BlockMethodType::Register { field_set_name, .. } = method.method_type %}
+{%- if let Some(field_set) = self.find_field_set(field_set_name) %}
+{%- for inst in self.instances(method) %}
+{%- for field in field_set.fields %}
+{%- if self::sv_hw_writable(field.hw_access) %}
+    logic                                          {{ self::sv_hwif_field_name(method.name, inst.suffix_snake, field) }}_we;
+    logic {{ self::sv_logic_width(self::sv_field_width(field.address)) }} {{ self::sv_hwif_field_name(method.name, inst.suffix_snake, field) }};
+{%- endif %}
+{%- if field.hw_clr %}
+    logic                                          {{ self::sv_hwif_field_name(method.name, inst.suffix_snake, field) }}_hwclr;
+{%- endif %}
+{%- if field.hw_set %}
+    logic                                          {{ self::sv_hwif_field_name(method.name, inst.suffix_snake, field) }}_hwset;
+{%- endif %}
+{%- if field.is_interrupt() %}
+    logic                                          {{ self::sv_hwif_field_name(method.name, inst.suffix_snake, field) }}_intr;
+{%- endif %}
+{%- endfor %}
+{%- endfor %}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+{%- for method in block.methods %}
+{%- if let BlockMethodType::Register { field_set_name, .. } = method.method_type %}
+{%- if self.register_is_external(method) %}
+{%- if let Some(field_set) = self.find_field_set(field_set_name) %}
+{%- for inst in self.instances(method) %}
+    // external `{{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }}` — user RTL → bus
+    logic [{{ self::sv_reg_storage_width(field_set) - 1 }}:0] {{ self::sv_reg_name(method.name) }}{{ inst.suffix_snake }}_ext_rd_data;
+{%- endfor %}
+{%- endif %}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+{%- for cmd in self.command_strobe_entries(block) %}
+{%- if cmd.has_resp() %}
+    // command `{{ cmd.name }}` — strobe handshake response
+    logic                                          cmd_{{ cmd.name }}_resp_valid;
+    logic [{{ cmd.out_width - 1 }}:0]                      cmd_{{ cmd.name }}_resp;
+{%- endif %}
+{%- endfor %}
+{%- for buf in self.buffer_fifo_entries(block) %}
+{%- if buf.bus_pops %}
+    // buffer `{{ buf.name }}` — FIFO read data
+    logic [CPUIF_DATA_W-1:0]                       buf_{{ buf.name }}_rdata;
+{%- endif %}
+{%- endfor %}
+  } {{ self::sv_hwif_in_struct(block.name) }};
+{%- endif %}
+
+endpackage : {{ self::sv_package_name(block.name) }}

@@ -1,0 +1,20 @@
+/// Exercises the `precedence` modifier: when set to `sw`, SW writes/reads
+/// win over HW strobes on the same cycle. Default `hw` matches the prior
+/// SystemRDL-style behaviour.
+device PrecedenceOverride {
+    byte-order: LE,
+    register-address-type: u8,
+
+    register Ctrl {
+        address: 0,
+        fields: fieldset CtrlFields {
+            size-bytes: 1,
+
+            /// Default cascade — HW write wins over SW write.
+            field hw_wins 0 -> bool { hw-access: RW },
+
+            /// SW-precedence cascade — SW write wins over HW write.
+            field sw_wins 1 -> bool { hw-access: RW, precedence: sw },
+        }
+    }
+}

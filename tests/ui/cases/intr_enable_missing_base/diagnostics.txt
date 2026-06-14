@@ -1,0 +1,16 @@
+error: `intr-enable: allow` is set but `intr-enable-address-base` is missing from the device
+  --> input.ddsl:20:19
+   |
+LL |             field overflow 0 -> bool {
+   |                   ^^^^^^^^ `intr-enable` opted in here
+   |
+note: without `intr-enable-address-base: <addr>` on the device, the SystemVerilog target can't synthesize the companion register, so the IRQ output silently bypasses the intr-enable gating. Either add the address-base property or remove `intr-enable: allow` from the field.
+
+error: `intr-mask: allow` is set but `intr-mask-address-base` is missing from the device
+  --> input.ddsl:20:19
+   |
+LL |             field overflow 0 -> bool {
+   |                   ^^^^^^^^ `intr-mask` opted in here
+   |
+note: without `intr-mask-address-base: <addr>` on the device, the SystemVerilog target can't synthesize the companion register, so the IRQ output silently bypasses the intr-mask gating. Either add the address-base property or remove `intr-mask: allow` from the field.
+

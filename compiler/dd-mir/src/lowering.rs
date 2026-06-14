@@ -15,8 +15,9 @@ use device_driver_common::{
     identifier::{All, Identifier, IdentifierRef, IdentifierType, Operation, Type},
     span::{Span, SpanExt, Spanned},
     specifiers::{
-        Access, AddressMode, AddressRange, BaseType, ByteOrder, Integer, NodeType, Repeat,
-        RepeatSource, ResetValue, TypeConversion,
+        Access, AddressMode, AddressRange, BaseType, ByteOrder, HwAccess, HwHandshake, HwKind,
+        Integer, IntrTrigger, NodeType, OnRead, OnWrite, Precedence, Repeat, RepeatSource,
+        ReservedBehavior, ResetValue, SvBus, TypeConversion,
     },
 };
 use device_driver_diagnostics::{
@@ -765,6 +766,26 @@ impl Shape for Manifest {
                     false
                 },
             },
+            PropertyInfo {
+                name: PropertyName::Exact("sv-bus"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::SvBus(SvBus::Native)]),
+                multiple_allowed: true,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: manifest,
+                             property,
+                             ..
+                         }| {
+                    if let Some(val) = property.expression.as_sv_bus() {
+                        manifest
+                            .config
+                            .sv_bus
+                            .push(val.with_span(property.expression.span));
+                    }
+                    false
+                },
+            },
         ];
         MAP
     }
@@ -917,6 +938,235 @@ impl Shape for Device {
                             .unwrap()
                             .with_span(property.expression.span),
                     );
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("sv-bus"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::SvBus(SvBus::Native)]),
+                multiple_allowed: true,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: device,
+                             property,
+                             ..
+                         }| {
+                    if let Some(val) = property.expression.as_sv_bus() {
+                        device
+                            .device_config
+                            .sv_bus
+                            .push(val.with_span(property.expression.span));
+                    }
+                    false
+                },
+            },
+            // SVA opt-in flags. Each `<flag>: allow` toggles one category in
+            // the emitted `<dev>_sva` checker module. With none enabled, no
+            // checker file is emitted.
+            PropertyInfo {
+                name: PropertyName::Exact("sv-assert-reset"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Allow]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: device,
+                             property,
+                             ..
+                         }| {
+                    if matches!(property.expression.value, Expression::Allow) {
+                        device.device_config.sv_assertions.reset = true;
+                    }
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("sv-assert-decode-mutex"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Allow]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: device,
+                             property,
+                             ..
+                         }| {
+                    if matches!(property.expression.value, Expression::Allow) {
+                        device.device_config.sv_assertions.decode_mutex = true;
+                    }
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("sv-assert-w1c"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Allow]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: device,
+                             property,
+                             ..
+                         }| {
+                    if matches!(property.expression.value, Expression::Allow) {
+                        device.device_config.sv_assertions.w1c = true;
+                    }
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("sv-assert-ro-invariance"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Allow]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: device,
+                             property,
+                             ..
+                         }| {
+                    if matches!(property.expression.value, Expression::Allow) {
+                        device.device_config.sv_assertions.ro_invariance = true;
+                    }
+                    false
+                },
+            },
+            // UVM RAL opt-out. The RAL package is emitted by default
+            // (item 120 from the SV-backend roadmap — verification teams
+            // normally always want it). `sv-no-ral: allow` opts out for
+            // SW-only consumers who don't care about UVM artifacts.
+            // `sv-ral: allow` is retained as an explicit no-op for DSL
+            // sources that already pinned the value.
+            PropertyInfo {
+                name: PropertyName::Exact("sv-ral"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Allow]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: device,
+                             property,
+                             ..
+                         }| {
+                    if matches!(property.expression.value, Expression::Allow) {
+                        device.device_config.sv_ral = true;
+                    }
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("sv-no-ral"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Allow]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: device,
+                             property,
+                             ..
+                         }| {
+                    if matches!(property.expression.value, Expression::Allow) {
+                        device.device_config.sv_ral = false;
+                    }
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("sv-hdl-path-prefix"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::String("u_top.u_regs")]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: device,
+                             property,
+                             ..
+                         }| {
+                    device.device_config.sv_hdl_path_prefix =
+                        property.expression.as_string().map(str::to_string);
+                    false
+                },
+            },
+            // CPUIF data-bus width in bits. When omitted, codegen falls back
+            // to the `--option sv-data-width=N` CLI override, then 32.
+            PropertyInfo {
+                name: PropertyName::Exact("sv-data-width"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Number(32)]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: device,
+                             property,
+                             ..
+                         }| {
+                    // Capture span unconditionally and defer {32, 64}
+                    // validation to `passes::bus_compat_checked`. Silent
+                    // drop here was bad UX: the user saw `sv-data-width: 7`
+                    // accepted and a regblock generated at 32 bits.
+                    if let Some(n) = property.expression.as_number() {
+                        let value = n.clamp(0, u32::MAX as i128) as u32;
+                        device.device_config.sv_data_width =
+                            Some(value.with_span(property.expression.span));
+                    }
+                    false
+                },
+            },
+            // Suppress the root `irq` OR-reduce output. Default is on (root
+            // `irq` is emitted when ungrouped intr fields exist). Per-group
+            // `irq_<group>` outputs are unaffected by this flag.
+            PropertyInfo {
+                name: PropertyName::Exact("intr-no-aggregate"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Allow]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: device,
+                             property,
+                             ..
+                         }| {
+                    if matches!(property.expression.value, Expression::Allow) {
+                        device.device_config.intr_aggregate = Some(false);
+                    }
+                    false
+                },
+            },
+            // Base address for synthesized per-group intr enable/mask
+            // companion registers. Each distinct group occupies one
+            // CPUIF-data-width slot starting at the base.
+            PropertyInfo {
+                name: PropertyName::Exact("intr-enable-address-base"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Number(0)]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: device,
+                             property,
+                             ..
+                         }| {
+                    if let Some(n) = property.expression.as_number() {
+                        device.device_config.intr_enable_address_base = Some(n);
+                    }
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("intr-mask-address-base"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Number(0)]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: device,
+                             property,
+                             ..
+                         }| {
+                    if let Some(n) = property.expression.as_number() {
+                        device.device_config.intr_mask_address_base = Some(n);
+                    }
                     false
                 },
             },
@@ -1163,6 +1413,47 @@ impl Shape for Register {
                         }
                     },
                 },
+                // SystemVerilog-target reserved-bit policy.
+                PropertyInfo {
+                    name: PropertyName::Exact("reserved-behavior"),
+                    allowed_expression_types: Cow::Borrowed(&[Expression::ReservedBehavior(
+                        ReservedBehavior::RoZero,
+                    )]),
+                    multiple_allowed: false,
+                    required: false,
+                    supports_doc_comments: false,
+                    setter: |SetterArgs {
+                                 target_object: r,
+                                 property,
+                                 ..
+                             }| {
+                        if let Some(rb) = property.expression.as_reserved_behavior() {
+                            r.reserved_behavior = rb;
+                        }
+                        false
+                    },
+                },
+                // SystemVerilog-target opt-in. With `external: allow`, the
+                // register has no storage flop; the regblock exposes
+                // `<reg>_ext_*` ports on hwif so user RTL drives the read
+                // data and observes write transactions directly.
+                PropertyInfo {
+                    name: PropertyName::Exact("external"),
+                    allowed_expression_types: Cow::Borrowed(&[Expression::Allow]),
+                    multiple_allowed: false,
+                    required: false,
+                    supports_doc_comments: false,
+                    setter: |SetterArgs {
+                                 target_object: r,
+                                 property,
+                                 ..
+                             }| {
+                        if matches!(property.expression.value, Expression::Allow) {
+                            r.external = true;
+                        }
+                        false
+                    },
+                },
             ]
             .into()
         });
@@ -1382,6 +1673,88 @@ impl Shape for Buffer {
                         .as_number()
                         .unwrap()
                         .with_span(property.expression.span);
+                    false
+                },
+            },
+            // SystemVerilog target opt-in. `hw-kind: fifo` (the only v1 value)
+            // wires bus push/pop strobes on the buffer's address. The regblock
+            // intentionally does NOT instantiate the FIFO storage — user RTL
+            // plugs its own FIFO into the hwif handshake signals. Rust target
+            // ignores both properties.
+            PropertyInfo {
+                name: PropertyName::Exact("hw-kind"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::HwKind(HwKind::Fifo)]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: buf,
+                             property,
+                             ..
+                         }| {
+                    buf.hw_kind = property.expression.as_hw_kind();
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("depth"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Number(0)]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: buf,
+                             property,
+                             ..
+                         }| {
+                    if let Some(n) = property.expression.as_number()
+                        && n > 0
+                        && n <= u32::MAX as i128
+                    {
+                        buf.depth = Some(n as u32);
+                    }
+                    false
+                },
+            },
+            // Address at which the future auto-synthesized companion
+            // status register will live. Held in MIR + LIR + carried
+            // verbatim into hwif doc comments; synthesis to come.
+            PropertyInfo {
+                name: PropertyName::Exact("status-address"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Number(0)]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: buf,
+                             property,
+                             ..
+                         }| {
+                    if let Some(n) = property.expression.as_number() {
+                        buf.status_address = Some(n);
+                    }
+                    false
+                },
+            },
+            // Streaming-mode multi-word access hint. Informational only
+            // in v1.
+            PropertyInfo {
+                name: PropertyName::Exact("words"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Number(0)]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: buf,
+                             property,
+                             ..
+                         }| {
+                    if let Some(n) = property.expression.as_number()
+                        && n > 0
+                        && n <= u32::MAX as i128
+                    {
+                        buf.words = Some(n as u32);
+                    }
                     false
                 },
             },
@@ -1632,6 +2005,28 @@ impl Shape for Command {
                         }
                     },
                 },
+                // SystemVerilog target opt-in. With `hw-handshake: strobe`,
+                // the regblock emits `cmd_<n>_strobe` + `cmd_<n>_in` (out
+                // of the regs module) and, if `fields-out` is set, also
+                // latches `cmd_<n>_resp` (into the regs module) for read
+                // back. Rust target ignores this property.
+                PropertyInfo {
+                    name: PropertyName::Exact("hw-handshake"),
+                    allowed_expression_types: Cow::Borrowed(&[Expression::HwHandshake(
+                        HwHandshake::Strobe,
+                    )]),
+                    multiple_allowed: false,
+                    required: false,
+                    supports_doc_comments: false,
+                    setter: |SetterArgs {
+                                 target_object: command,
+                                 property,
+                                 ..
+                             }| {
+                        command.hw_handshake = property.expression.as_hw_handshake();
+                        false
+                    },
+                },
             ]
             .into()
         });
@@ -1724,6 +2119,268 @@ impl Shape for Field {
                              ..
                          }| {
                     field.access = property.expression.as_access().unwrap();
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("on-write"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::OnWrite(OnWrite::Store)]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: field,
+                             property,
+                             ..
+                         }| {
+                    field.on_write = property.expression.as_on_write();
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("hw-access"),
+                // Reuses the sw Access token (RW/RO/WO); the setter maps each
+                // variant to the corresponding HwAccess. To express "HW has no
+                // observation port" (rare), omit the property entirely — the
+                // default `HwAccess::RO` is what every existing register gets.
+                allowed_expression_types: Cow::Borrowed(&[Expression::Access(Access::RW)]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: field,
+                             property,
+                             ..
+                         }| {
+                    field.hw_access = property.expression.as_access().map(HwAccess::from);
+                    false
+                },
+            },
+            // HW-side strobe modifiers — `<property>: allow` opts each in.
+            // `hw-clr` and `hw-set` wire a single-bit input that forces the
+            // field to all-zeros / all-ones for one cycle. `singlepulse` makes
+            // the field auto-clear the cycle after any non-zero state.
+            PropertyInfo {
+                name: PropertyName::Exact("hw-clr"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Allow]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: field,
+                             property,
+                             ..
+                         }| {
+                    field.hw_clr = matches!(property.expression.value, Expression::Allow);
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("hw-set"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Allow]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: field,
+                             property,
+                             ..
+                         }| {
+                    field.hw_set = matches!(property.expression.value, Expression::Allow);
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("singlepulse"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Allow]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: field,
+                             property,
+                             ..
+                         }| {
+                    field.singlepulse = matches!(property.expression.value, Expression::Allow);
+                    false
+                },
+            },
+            // Override HW vs SW write precedence for this field. Default `Hw`
+            // matches SystemRDL and is what every prior milestone bakes in.
+            PropertyInfo {
+                name: PropertyName::Exact("precedence"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Precedence(Precedence::Hw)]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: field,
+                             property,
+                             ..
+                         }| {
+                    field.precedence = property.expression.as_precedence();
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("on-read"),
+                // Reuses the OnWrite token type at the lexer/parser level; the
+                // setter narrows to OnRead and rejects `toggle`.
+                allowed_expression_types: Cow::Borrowed(&[Expression::OnWrite(OnWrite::Store)]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: field,
+                             property,
+                             node,
+                             diagnostics,
+                             ..
+                         }| {
+                    let raw = property.expression.as_on_write().unwrap();
+                    field.on_read = match raw {
+                        OnWrite::Store => Some(OnRead::Store),
+                        OnWrite::Clear => Some(OnRead::Clear),
+                        OnWrite::Set => Some(OnRead::Set),
+                        OnWrite::Toggle => {
+                            diagnostics.add(
+                                device_driver_diagnostics::errors::OnReadToggleNotAllowed {
+                                    property_span: property.expression.span,
+                                    field_set_context: node.name.span,
+                                },
+                            );
+                            None
+                        }
+                    };
+                    false
+                },
+            },
+            // Interrupt-source field: mark the field as an IRQ source with the
+            // given trigger semantics. Emits a raw input `hwif_in.<f>_intr`,
+            // edge-detect (where applicable), and OR-reduces sticky storage
+            // into `irq_<group>` (or root `irq` if no `intr-group` set).
+            PropertyInfo {
+                name: PropertyName::Exact("intr-trigger"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::IntrTrigger(
+                    IntrTrigger::Level,
+                )]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: field,
+                             property,
+                             ..
+                         }| {
+                    field.intr_trigger = property.expression.as_intr_trigger();
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("intr-group"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::String("group")]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: field,
+                             property,
+                             ..
+                         }| {
+                    field.intr_group = property.expression.as_string().map(str::to_string);
+                    false
+                },
+            },
+            // `intr-sticky: allow` opts the field into latched behaviour
+            // (default true once `intr-trigger` is set; explicit `false`
+            // disables — exposed for testability rather than a useful
+            // production pattern).
+            PropertyInfo {
+                name: PropertyName::Exact("intr-sticky"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Allow]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: field,
+                             property,
+                             ..
+                         }| {
+                    field.intr_sticky = matches!(property.expression.value, Expression::Allow);
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("intr-enable"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Allow]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: field,
+                             property,
+                             ..
+                         }| {
+                    field.intr_enable = matches!(property.expression.value, Expression::Allow);
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("intr-mask"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Allow]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: field,
+                             property,
+                             ..
+                         }| {
+                    field.intr_mask = matches!(property.expression.value, Expression::Allow);
+                    false
+                },
+            },
+            // Explicit companion bit positions. Without these, the LIR
+            // synthesis pass falls back to declaration order — fine
+            // pre-1.0 but ABI-fragile once anyone depends on a fixed
+            // layout. The pair `intr-enable: allow, intr-enable-bit: N`
+            // pins the bit to N in the synthesized
+            // `<group>_intr_enable` register. Mirror semantics for
+            // `intr-mask-bit`. The LIR collision check enforces
+            // uniqueness within a (group, side).
+            PropertyInfo {
+                name: PropertyName::Exact("intr-enable-bit"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Number(0)]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: field,
+                             property,
+                             ..
+                         }| {
+                    if let Some(n) = property.expression.as_number() {
+                        let value = n.clamp(0, u32::MAX as i128) as u32;
+                        field.intr_enable_bit = Some(value.with_span(property.expression.span));
+                    }
+                    false
+                },
+            },
+            PropertyInfo {
+                name: PropertyName::Exact("intr-mask-bit"),
+                allowed_expression_types: Cow::Borrowed(&[Expression::Number(0)]),
+                multiple_allowed: false,
+                required: false,
+                supports_doc_comments: false,
+                setter: |SetterArgs {
+                             target_object: field,
+                             property,
+                             ..
+                         }| {
+                    if let Some(n) = property.expression.as_number() {
+                        let value = n.clamp(0, u32::MAX as i128) as u32;
+                        field.intr_mask_bit = Some(value.with_span(property.expression.span));
+                    }
                     false
                 },
             },

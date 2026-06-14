@@ -1,0 +1,38 @@
+/// Exercises the `intr-enable-bit` / `intr-mask-bit` explicit bit
+/// position knobs (item 8 from the SV-backend usability gap list).
+/// Without these, the synthesis pass falls back to declaration order,
+/// which silently shifts bit positions if the user reorders fields.
+/// This case pins each opt-in field to a specific bit so the layout is
+/// ABI-stable: `overflow` always at bit 0, `underflow` always at bit 3.
+/// A new field added between them at a later DSL revision can be given
+/// bit 1 or 2 without disturbing the pinned ones.
+device IntrExplicitBits {
+    byte-order: LE,
+    register-address-type: u8,
+    intr-enable-address-base: 0x40,
+    intr-mask-address-base: 0x60,
+
+    register Status {
+        address: 0,
+        access: RW,
+        fields: fieldset StatusFields {
+            size-bytes: 4,
+            field overflow 0 -> bool {
+                on-write: clear,
+                intr-trigger: level,
+                intr-enable: allow,
+                intr-enable-bit: 0,
+                intr-mask: allow,
+                intr-mask-bit: 0,
+            },
+            field underflow 1 -> bool {
+                on-write: clear,
+                intr-trigger: posedge,
+                intr-enable: allow,
+                intr-enable-bit: 3,
+                intr-mask: allow,
+                intr-mask-bit: 3,
+            },
+        }
+    }
+}

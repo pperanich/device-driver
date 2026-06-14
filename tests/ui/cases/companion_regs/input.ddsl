@@ -1,0 +1,41 @@
+/// Exercises companion-register synthesis: per-IRQ-group enable + mask
+/// registers materialised from field-level `intr-enable` / `intr-mask`
+/// opt-ins, and a FIFO status companion register from buffer-level
+/// `status-address`. Rust target ignores the synthesis.
+device CompanionRegs {
+    byte-order: LE,
+    register-address-type: u8,
+    buffer-address-type: u8,
+    sv-bus: apb3,
+    intr-enable-address-base: 0x40,
+    intr-mask-address-base: 0x60,
+
+    register Status {
+        address: 0,
+        access: RW,
+        fields: fieldset StatusFields {
+            size-bytes: 4,
+            field overflow 0 -> bool {
+                on-write: clear,
+                intr-trigger: level,
+                intr-enable: allow,
+                intr-mask: allow,
+            },
+            field underflow 1 -> bool {
+                on-write: clear,
+                intr-trigger: posedge,
+                intr-enable: allow,
+                intr-mask: allow,
+                intr-group: "err",
+            },
+        }
+    },
+
+    buffer DataFifo {
+        address: 0x10,
+        access: RW,
+        hw-kind: fifo,
+        depth: 16,
+        status-address: 0x20,
+    }
+}

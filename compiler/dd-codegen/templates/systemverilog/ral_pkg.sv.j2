@@ -1,0 +1,93 @@
+// =============================================================================
+// UVM RAL package: {{ self::sv_ral_pkg_name(block.name) }}
+//
+// Generated UVM register model for verification-team consumption. Adds:
+//   * One `<dev>_<reg>_reg` (`uvm_reg`) subclass per register
+//   * One `<dev>_reg_block` (`uvm_reg_block`) subclass tying them together
+//   * Per-field `uvm_reg_field` declarations with UVM access strings
+//     derived from DDSL access + on-write modifiers
+//   * Optional backdoor wiring via `add_hdl_path_slice` (only when the
+//     device sets `sv-hdl-path-prefix`)
+//
+// Compile with `+incdir+$UVM_HOME/src $UVM_HOME/src/uvm.sv`. Tested at
+// snapshot level only — OSS CI cannot run UVM (Verilator lacks UVM).
+// =============================================================================
+`ifndef _{{ self::sv_ral_pkg_guard(block.name) }}
+`define _{{ self::sv_ral_pkg_guard(block.name) }}
+
+package {{ self::sv_ral_pkg_name(block.name) }};
+
+  import uvm_pkg::*;
+  `include "uvm_macros.svh"
+
+{% for reg in self.ral_registers() %}
+  // ---- register `{{ reg.snake_name }}` --------------------------------------
+  class {{ reg.uvm_class }} extends uvm_reg;
+{% for f in reg.fields %}
+    rand uvm_reg_field {{ f.snake_name }};
+{% endfor %}
+
+    function new(string name = "{{ reg.uvm_class }}");
+      super.new(name, {{ reg.width_bits }}, UVM_NO_COVERAGE);
+    endfunction
+
+    virtual function void build();
+{% for f in reg.fields %}
+      this.{{ f.snake_name }} = uvm_reg_field::type_id::create("{{ f.snake_name }}");
+      this.{{ f.snake_name }}.configure(
+        .parent                  (this),
+        .size                    ({{ f.width }}),
+        .lsb_pos                 ({{ f.lsb }}),
+        .access                  ("{{ f.uvm_access }}"),
+        .volatile                ({{ f.volatile_lit }}),
+        .reset                   ({{ f.reset_lit }}),
+        .has_reset               (1'b1),
+        .is_rand                 (1'b1),
+        .individually_accessible (1'b0));
+{% endfor %}
+    endfunction
+
+  endclass : {{ reg.uvm_class }}
+
+{% endfor %}
+
+  // ---- register block -------------------------------------------------------
+  class {{ self::sv_ral_block_class(block.name) }} extends uvm_reg_block;
+{% for reg in self.ral_registers() %}
+    rand {{ reg.uvm_class }} {{ reg.snake_name }};
+{% endfor %}
+
+    function new(string name = "{{ self::sv_ral_block_class(block.name) }}");
+      super.new(name, UVM_NO_COVERAGE);
+    endfunction
+
+    virtual function void build();
+      // Byte-aligned LITTLE_ENDIAN map at base 0; bus width derives from
+      // the regblock's CPUIF data width.
+      this.default_map = create_map(
+        .name      ("default_map"),
+        .base_addr ({{ self.ral_addr_width() }}'h0),
+        .n_bytes   ({{ self.data_width() / 8 }}),
+        .endian    (UVM_LITTLE_ENDIAN),
+        .byte_addressing (1'b1));
+
+{% for reg in self.ral_registers() %}
+      this.{{ reg.snake_name }} = {{ reg.uvm_class }}::type_id::create("{{ reg.snake_name }}");
+      this.{{ reg.snake_name }}.configure(this, null, "");
+      this.{{ reg.snake_name }}.build();
+      this.default_map.add_reg(this.{{ reg.snake_name }}, {{ self.ral_addr_width() }}'h{{ reg.addr_hex }}, "{{ reg.uvm_access }}");
+{% if self.has_hdl_path_prefix() %}
+{% for f in reg.fields %}
+      this.{{ reg.snake_name }}.add_hdl_path_slice("{{ self.ral_hdl_path_prefix() }}.{{ reg.storage_name }}", {{ f.lsb }}, {{ f.width }});
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+      lock_model();
+    endfunction
+
+  endclass : {{ self::sv_ral_block_class(block.name) }}
+
+endpackage : {{ self::sv_ral_pkg_name(block.name) }}
+
+`endif // _{{ self::sv_ral_pkg_guard(block.name) }}

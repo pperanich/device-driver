@@ -1,0 +1,17 @@
+/// Exercises `sv-bus: ahblite` — emits an AHB-Lite wrapper with the
+/// 2-phase address/data protocol bridging to the native CPUIF. Rust
+/// target ignores `sv-bus`.
+device AhbLiteBasic {
+    byte-order: LE,
+    register-address-type: u8,
+    sv-bus: ahblite,
+
+    register Ctrl {
+        address: 0,
+        fields: fieldset CtrlFields {
+            size-bytes: 4,
+            field enable 0 -> bool,
+            field count 31:16 -> uint,
+        }
+    }
+}

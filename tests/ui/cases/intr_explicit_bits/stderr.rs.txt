@@ -1,0 +1,499 @@
+error[E0277]: the trait bound `bool: device_driver::ops::Integer` is not satisfied
+   --> intr_explicit_bits.rs:286:17
+    |
+286 |                 bool,
+    |                 ^^^^ the trait `device_driver::ops::Integer` is not implemented for `bool`
+    |
+    = help: the following other types implement trait `device_driver::ops::Integer`:
+              i128
+              i16
+              i32
+              i64
+              i8
+              isize
+              u128
+              u16
+            and 4 others
+note: required by a bound in `device_driver::ops::load`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:13:57
+    |
+ 11 | pub unsafe fn load<T, ByteO: ByteOrder>(data: &[u8], start: usize, end: usize) -> T
+    |               ---- required by a bound in this function
+ 12 | where
+ 13 |     T: Default + Shl<usize, Output = T> + BitOrAssign + Integer + TruncateToU8,
+    |                                                         ^^^^^^^ required by this bound in `load`
+
+error[E0277]: the trait bound `bool: device_driver::ops::TruncateToU8` is not satisfied
+   --> intr_explicit_bits.rs:286:17
+    |
+286 |                 bool,
+    |                 ^^^^ the trait `device_driver::ops::TruncateToU8` is not implemented for `bool`
+    |
+    = help: the following other types implement trait `device_driver::ops::TruncateToU8`:
+              i128
+              i16
+              i32
+              i64
+              i8
+              isize
+              u128
+              u16
+            and 4 others
+note: required by a bound in `device_driver::ops::load`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:13:67
+    |
+ 11 | pub unsafe fn load<T, ByteO: ByteOrder>(data: &[u8], start: usize, end: usize) -> T
+    |               ---- required by a bound in this function
+ 12 | where
+ 13 |     T: Default + Shl<usize, Output = T> + BitOrAssign + Integer + TruncateToU8,
+    |                                                                   ^^^^^^^^^^^^ required by this bound in `load`
+
+error[E0308]: mismatched types
+   --> intr_explicit_bits.rs:290:15
+    |
+290 |         raw > 0
+    |         ---   ^ expected `bool`, found integer
+    |         |
+    |         expected because this is `bool`
+
+error[E0277]: the trait bound `bool: device_driver::ops::Integer` is not satisfied
+   --> intr_explicit_bits.rs:301:17
+    |
+301 |                 bool,
+    |                 ^^^^ the trait `device_driver::ops::Integer` is not implemented for `bool`
+    |
+    = help: the following other types implement trait `device_driver::ops::Integer`:
+              i128
+              i16
+              i32
+              i64
+              i8
+              isize
+              u128
+              u16
+            and 4 others
+note: required by a bound in `device_driver::ops::load`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:13:57
+    |
+ 11 | pub unsafe fn load<T, ByteO: ByteOrder>(data: &[u8], start: usize, end: usize) -> T
+    |               ---- required by a bound in this function
+ 12 | where
+ 13 |     T: Default + Shl<usize, Output = T> + BitOrAssign + Integer + TruncateToU8,
+    |                                                         ^^^^^^^ required by this bound in `load`
+
+error[E0277]: the trait bound `bool: device_driver::ops::TruncateToU8` is not satisfied
+   --> intr_explicit_bits.rs:301:17
+    |
+301 |                 bool,
+    |                 ^^^^ the trait `device_driver::ops::TruncateToU8` is not implemented for `bool`
+    |
+    = help: the following other types implement trait `device_driver::ops::TruncateToU8`:
+              i128
+              i16
+              i32
+              i64
+              i8
+              isize
+              u128
+              u16
+            and 4 others
+note: required by a bound in `device_driver::ops::load`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:13:67
+    |
+ 11 | pub unsafe fn load<T, ByteO: ByteOrder>(data: &[u8], start: usize, end: usize) -> T
+    |               ---- required by a bound in this function
+ 12 | where
+ 13 |     T: Default + Shl<usize, Output = T> + BitOrAssign + Integer + TruncateToU8,
+    |                                                                   ^^^^^^^^^^^^ required by this bound in `load`
+
+error[E0308]: mismatched types
+   --> intr_explicit_bits.rs:305:15
+    |
+305 |         raw > 0
+    |         ---   ^ expected `bool`, found integer
+    |         |
+    |         expected because this is `bool`
+
+error[E0277]: the trait bound `bool: device_driver::ops::TruncateToU8` is not satisfied
+   --> intr_explicit_bits.rs:316:17
+    |
+316 |                 bool,
+    |                 ^^^^ the trait `device_driver::ops::TruncateToU8` is not implemented for `bool`
+    |
+    = help: the following other types implement trait `device_driver::ops::TruncateToU8`:
+              i128
+              i16
+              i32
+              i64
+              i8
+              isize
+              u128
+              u16
+            and 4 others
+note: required by a bound in `device_driver::ops::store`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:59:15
+    |
+ 57 | pub unsafe fn store<T, ByteO: ByteOrder>(value: T, start: usize, end: usize, data: &mut [u8])
+    |               ----- required by a bound in this function
+ 58 | where
+ 59 |     T: Copy + TruncateToU8 + Shr<usize, Output = T> + Integer,
+    |               ^^^^^^^^^^^^ required by this bound in `store`
+
+error[E0277]: no implementation for `bool >> usize`
+   --> intr_explicit_bits.rs:316:17
+    |
+316 |                 bool,
+    |                 ^^^^ no implementation for `bool >> usize`
+    |
+    = help: the trait `Shr<usize>` is not implemented for `bool`
+note: required by a bound in `device_driver::ops::store`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:59:30
+    |
+ 57 | pub unsafe fn store<T, ByteO: ByteOrder>(value: T, start: usize, end: usize, data: &mut [u8])
+    |               ----- required by a bound in this function
+ 58 | where
+ 59 |     T: Copy + TruncateToU8 + Shr<usize, Output = T> + Integer,
+    |                              ^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `store`
+
+error[E0277]: the trait bound `bool: device_driver::ops::Integer` is not satisfied
+   --> intr_explicit_bits.rs:316:17
+    |
+316 |                 bool,
+    |                 ^^^^ the trait `device_driver::ops::Integer` is not implemented for `bool`
+    |
+    = help: the following other types implement trait `device_driver::ops::Integer`:
+              i128
+              i16
+              i32
+              i64
+              i8
+              isize
+              u128
+              u16
+            and 4 others
+note: required by a bound in `device_driver::ops::store`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:59:55
+    |
+ 57 | pub unsafe fn store<T, ByteO: ByteOrder>(value: T, start: usize, end: usize, data: &mut [u8])
+    |               ----- required by a bound in this function
+ 58 | where
+ 59 |     T: Copy + TruncateToU8 + Shr<usize, Output = T> + Integer,
+    |                                                       ^^^^^^^ required by this bound in `store`
+
+error[E0277]: the trait bound `bool: device_driver::ops::TruncateToU8` is not satisfied
+   --> intr_explicit_bits.rs:330:17
+    |
+330 |                 bool,
+    |                 ^^^^ the trait `device_driver::ops::TruncateToU8` is not implemented for `bool`
+    |
+    = help: the following other types implement trait `device_driver::ops::TruncateToU8`:
+              i128
+              i16
+              i32
+              i64
+              i8
+              isize
+              u128
+              u16
+            and 4 others
+note: required by a bound in `device_driver::ops::store`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:59:15
+    |
+ 57 | pub unsafe fn store<T, ByteO: ByteOrder>(value: T, start: usize, end: usize, data: &mut [u8])
+    |               ----- required by a bound in this function
+ 58 | where
+ 59 |     T: Copy + TruncateToU8 + Shr<usize, Output = T> + Integer,
+    |               ^^^^^^^^^^^^ required by this bound in `store`
+
+error[E0277]: no implementation for `bool >> usize`
+   --> intr_explicit_bits.rs:330:17
+    |
+330 |                 bool,
+    |                 ^^^^ no implementation for `bool >> usize`
+    |
+    = help: the trait `Shr<usize>` is not implemented for `bool`
+note: required by a bound in `device_driver::ops::store`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:59:30
+    |
+ 57 | pub unsafe fn store<T, ByteO: ByteOrder>(value: T, start: usize, end: usize, data: &mut [u8])
+    |               ----- required by a bound in this function
+ 58 | where
+ 59 |     T: Copy + TruncateToU8 + Shr<usize, Output = T> + Integer,
+    |                              ^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `store`
+
+error[E0277]: the trait bound `bool: device_driver::ops::Integer` is not satisfied
+   --> intr_explicit_bits.rs:330:17
+    |
+330 |                 bool,
+    |                 ^^^^ the trait `device_driver::ops::Integer` is not implemented for `bool`
+    |
+    = help: the following other types implement trait `device_driver::ops::Integer`:
+              i128
+              i16
+              i32
+              i64
+              i8
+              isize
+              u128
+              u16
+            and 4 others
+note: required by a bound in `device_driver::ops::store`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:59:55
+    |
+ 57 | pub unsafe fn store<T, ByteO: ByteOrder>(value: T, start: usize, end: usize, data: &mut [u8])
+    |               ----- required by a bound in this function
+ 58 | where
+ 59 |     T: Copy + TruncateToU8 + Shr<usize, Output = T> + Integer,
+    |                                                       ^^^^^^^ required by this bound in `store`
+
+error[E0277]: the trait bound `bool: device_driver::ops::Integer` is not satisfied
+   --> intr_explicit_bits.rs:442:17
+    |
+442 |                 bool,
+    |                 ^^^^ the trait `device_driver::ops::Integer` is not implemented for `bool`
+    |
+    = help: the following other types implement trait `device_driver::ops::Integer`:
+              i128
+              i16
+              i32
+              i64
+              i8
+              isize
+              u128
+              u16
+            and 4 others
+note: required by a bound in `device_driver::ops::load`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:13:57
+    |
+ 11 | pub unsafe fn load<T, ByteO: ByteOrder>(data: &[u8], start: usize, end: usize) -> T
+    |               ---- required by a bound in this function
+ 12 | where
+ 13 |     T: Default + Shl<usize, Output = T> + BitOrAssign + Integer + TruncateToU8,
+    |                                                         ^^^^^^^ required by this bound in `load`
+
+error[E0277]: the trait bound `bool: device_driver::ops::TruncateToU8` is not satisfied
+   --> intr_explicit_bits.rs:442:17
+    |
+442 |                 bool,
+    |                 ^^^^ the trait `device_driver::ops::TruncateToU8` is not implemented for `bool`
+    |
+    = help: the following other types implement trait `device_driver::ops::TruncateToU8`:
+              i128
+              i16
+              i32
+              i64
+              i8
+              isize
+              u128
+              u16
+            and 4 others
+note: required by a bound in `device_driver::ops::load`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:13:67
+    |
+ 11 | pub unsafe fn load<T, ByteO: ByteOrder>(data: &[u8], start: usize, end: usize) -> T
+    |               ---- required by a bound in this function
+ 12 | where
+ 13 |     T: Default + Shl<usize, Output = T> + BitOrAssign + Integer + TruncateToU8,
+    |                                                                   ^^^^^^^^^^^^ required by this bound in `load`
+
+error[E0308]: mismatched types
+   --> intr_explicit_bits.rs:446:15
+    |
+446 |         raw > 0
+    |         ---   ^ expected `bool`, found integer
+    |         |
+    |         expected because this is `bool`
+
+error[E0277]: the trait bound `bool: device_driver::ops::Integer` is not satisfied
+   --> intr_explicit_bits.rs:457:17
+    |
+457 |                 bool,
+    |                 ^^^^ the trait `device_driver::ops::Integer` is not implemented for `bool`
+    |
+    = help: the following other types implement trait `device_driver::ops::Integer`:
+              i128
+              i16
+              i32
+              i64
+              i8
+              isize
+              u128
+              u16
+            and 4 others
+note: required by a bound in `device_driver::ops::load`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:13:57
+    |
+ 11 | pub unsafe fn load<T, ByteO: ByteOrder>(data: &[u8], start: usize, end: usize) -> T
+    |               ---- required by a bound in this function
+ 12 | where
+ 13 |     T: Default + Shl<usize, Output = T> + BitOrAssign + Integer + TruncateToU8,
+    |                                                         ^^^^^^^ required by this bound in `load`
+
+error[E0277]: the trait bound `bool: device_driver::ops::TruncateToU8` is not satisfied
+   --> intr_explicit_bits.rs:457:17
+    |
+457 |                 bool,
+    |                 ^^^^ the trait `device_driver::ops::TruncateToU8` is not implemented for `bool`
+    |
+    = help: the following other types implement trait `device_driver::ops::TruncateToU8`:
+              i128
+              i16
+              i32
+              i64
+              i8
+              isize
+              u128
+              u16
+            and 4 others
+note: required by a bound in `device_driver::ops::load`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:13:67
+    |
+ 11 | pub unsafe fn load<T, ByteO: ByteOrder>(data: &[u8], start: usize, end: usize) -> T
+    |               ---- required by a bound in this function
+ 12 | where
+ 13 |     T: Default + Shl<usize, Output = T> + BitOrAssign + Integer + TruncateToU8,
+    |                                                                   ^^^^^^^^^^^^ required by this bound in `load`
+
+error[E0308]: mismatched types
+   --> intr_explicit_bits.rs:461:15
+    |
+461 |         raw > 0
+    |         ---   ^ expected `bool`, found integer
+    |         |
+    |         expected because this is `bool`
+
+error[E0277]: the trait bound `bool: device_driver::ops::TruncateToU8` is not satisfied
+   --> intr_explicit_bits.rs:472:17
+    |
+472 |                 bool,
+    |                 ^^^^ the trait `device_driver::ops::TruncateToU8` is not implemented for `bool`
+    |
+    = help: the following other types implement trait `device_driver::ops::TruncateToU8`:
+              i128
+              i16
+              i32
+              i64
+              i8
+              isize
+              u128
+              u16
+            and 4 others
+note: required by a bound in `device_driver::ops::store`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:59:15
+    |
+ 57 | pub unsafe fn store<T, ByteO: ByteOrder>(value: T, start: usize, end: usize, data: &mut [u8])
+    |               ----- required by a bound in this function
+ 58 | where
+ 59 |     T: Copy + TruncateToU8 + Shr<usize, Output = T> + Integer,
+    |               ^^^^^^^^^^^^ required by this bound in `store`
+
+error[E0277]: no implementation for `bool >> usize`
+   --> intr_explicit_bits.rs:472:17
+    |
+472 |                 bool,
+    |                 ^^^^ no implementation for `bool >> usize`
+    |
+    = help: the trait `Shr<usize>` is not implemented for `bool`
+note: required by a bound in `device_driver::ops::store`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:59:30
+    |
+ 57 | pub unsafe fn store<T, ByteO: ByteOrder>(value: T, start: usize, end: usize, data: &mut [u8])
+    |               ----- required by a bound in this function
+ 58 | where
+ 59 |     T: Copy + TruncateToU8 + Shr<usize, Output = T> + Integer,
+    |                              ^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `store`
+
+error[E0277]: the trait bound `bool: device_driver::ops::Integer` is not satisfied
+   --> intr_explicit_bits.rs:472:17
+    |
+472 |                 bool,
+    |                 ^^^^ the trait `device_driver::ops::Integer` is not implemented for `bool`
+    |
+    = help: the following other types implement trait `device_driver::ops::Integer`:
+              i128
+              i16
+              i32
+              i64
+              i8
+              isize
+              u128
+              u16
+            and 4 others
+note: required by a bound in `device_driver::ops::store`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:59:55
+    |
+ 57 | pub unsafe fn store<T, ByteO: ByteOrder>(value: T, start: usize, end: usize, data: &mut [u8])
+    |               ----- required by a bound in this function
+ 58 | where
+ 59 |     T: Copy + TruncateToU8 + Shr<usize, Output = T> + Integer,
+    |                                                       ^^^^^^^ required by this bound in `store`
+
+error[E0277]: the trait bound `bool: device_driver::ops::TruncateToU8` is not satisfied
+   --> intr_explicit_bits.rs:486:17
+    |
+486 |                 bool,
+    |                 ^^^^ the trait `device_driver::ops::TruncateToU8` is not implemented for `bool`
+    |
+    = help: the following other types implement trait `device_driver::ops::TruncateToU8`:
+              i128
+              i16
+              i32
+              i64
+              i8
+              isize
+              u128
+              u16
+            and 4 others
+note: required by a bound in `device_driver::ops::store`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:59:15
+    |
+ 57 | pub unsafe fn store<T, ByteO: ByteOrder>(value: T, start: usize, end: usize, data: &mut [u8])
+    |               ----- required by a bound in this function
+ 58 | where
+ 59 |     T: Copy + TruncateToU8 + Shr<usize, Output = T> + Integer,
+    |               ^^^^^^^^^^^^ required by this bound in `store`
+
+error[E0277]: no implementation for `bool >> usize`
+   --> intr_explicit_bits.rs:486:17
+    |
+486 |                 bool,
+    |                 ^^^^ no implementation for `bool >> usize`
+    |
+    = help: the trait `Shr<usize>` is not implemented for `bool`
+note: required by a bound in `device_driver::ops::store`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:59:30
+    |
+ 57 | pub unsafe fn store<T, ByteO: ByteOrder>(value: T, start: usize, end: usize, data: &mut [u8])
+    |               ----- required by a bound in this function
+ 58 | where
+ 59 |     T: Copy + TruncateToU8 + Shr<usize, Output = T> + Integer,
+    |                              ^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `store`
+
+error[E0277]: the trait bound `bool: device_driver::ops::Integer` is not satisfied
+   --> intr_explicit_bits.rs:486:17
+    |
+486 |                 bool,
+    |                 ^^^^ the trait `device_driver::ops::Integer` is not implemented for `bool`
+    |
+    = help: the following other types implement trait `device_driver::ops::Integer`:
+              i128
+              i16
+              i32
+              i64
+              i8
+              isize
+              u128
+              u16
+            and 4 others
+note: required by a bound in `device_driver::ops::store`
+   --> /Users/pperanich/Documents/repos/oss/device-driver/device-driver/src/ops.rs:59:55
+    |
+ 57 | pub unsafe fn store<T, ByteO: ByteOrder>(value: T, start: usize, end: usize, data: &mut [u8])
+    |               ----- required by a bound in this function
+ 58 | where
+ 59 |     T: Copy + TruncateToU8 + Shr<usize, Output = T> + Integer,
+    |                                                       ^^^^^^^ required by this bound in `store`
+
+Some errors have detailed explanations: E0277, E0308.
+For more information about an error, try `rustc --explain E0277`.
+error: could not compile `intr_explicit_bits` (bin "intr_explicit_bits") due to 24 previous errors
