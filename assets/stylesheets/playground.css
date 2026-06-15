@@ -1,0 +1,151 @@
+@import "colors.css";
+
+body {
+    background-color: var(--bg-shade-2);
+    margin: 0px;
+    color: var(--text-color);
+    font-family: Verdana, "DejaVu Sans", sans-serif;
+    display: grid;
+    height: 100%;
+    grid-template-rows: auto minmax(0, 100%) 33.333%;
+    overflow: hidden;
+}
+
+#editor-container {
+    width: 100%;
+    background-color: var(--bg-shade-1);
+    clear: both;
+    display: grid;
+    grid-template-columns: calc(50% - 2.5px) 5px auto;
+    grid-template-rows: 1fr 5px;
+}
+
+#code-editor,
+#output-editor {
+    min-width: 0;
+    min-height: 0;
+}
+
+.separator {
+    background-color: var(--bg-shade-3);
+    padding: 0px;
+    margin: 0px;
+    transition-delay: 0.1s;
+    transition-duration: 0.2s;
+}
+
+.separator:hover {
+    transition-delay: 0.2s;
+    background-color: var(--theme-shade-1);
+}
+
+
+#vertical-separator {
+    grid-column: 1 / 4;
+    cursor: ns-resize;
+}
+
+#horizontal-separator {
+    cursor: ew-resize;
+}
+
+.diagnostics-window {
+    overflow: auto;
+    padding: 10px;
+}
+
+#diagnostics {
+    display: block;
+}
+
+pre {
+    width: 100%;
+    white-space: pre-wrap;
+    margin: 0px;
+}
+
+code {
+    font-family: Consolas, monospace;
+}
+
+.diagnostics-window a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.diagnostics-window a:hover {
+    text-decoration: underline;
+}
+
+
+header {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-around;
+    background-color: var(--theme-shade-1);
+    color: var(--text-color);
+    padding: 5px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 5px;
+
+    .box {
+        display: flex;
+        background-color: var(--theme-shade-2);
+        border-radius: 4px;
+        align-items: center;
+        justify-content: space-around;
+        padding: 5px 10px;
+        gap: 5px;
+
+        a& {
+            cursor: pointer;
+            border-radius: 4px;
+
+            &:hover {
+                background-color: var(--theme-shade-3);
+            }
+
+            &:active {
+                background-color: var(--theme-shade-4);
+            }
+        }
+
+        textarea {
+            resize: none;
+            background-color: var(--theme-shade-4);
+            color: var(--text-color);
+            border: none;
+            height: 100%;
+            outline: none;
+
+            &:focus {
+                outline: 2px solid var(--theme-shade-3);
+            }
+        }
+
+        select {
+            background-color: var(--theme-shade-4);
+            color: var(--text-color);
+            border: none;
+            height: 100%;
+            text-align: center;
+        }
+    }
+
+    .grow10 {
+        flex-grow: 10;
+    }
+
+    .grow1 {
+        flex-grow: 1;
+    }
+
+    .nopad {
+        padding: 1px;
+    }
+}
+
+.noselect {
+    user-select: none;
+}
